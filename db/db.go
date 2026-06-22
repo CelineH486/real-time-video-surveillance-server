@@ -127,6 +127,7 @@ func GetCamerasByTruckID(dbConn *sql.DB, truckID string) ([]map[string]string, e
 			status
 		FROM cameras
 		WHERE truck_id = $1
+		ORDER BY camera_id
 	`, truckID)
 	if err != nil {
 		return nil, err

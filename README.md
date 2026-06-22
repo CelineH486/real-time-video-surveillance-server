@@ -51,6 +51,8 @@ To start PostgreSQL, the Go API, and MediaMTX together:
 docker compose up -d --build
 ```
 
+Open the responsive monitoring dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer.
+
 The development database is seeded with `truck001` and `cam01` through `cam09`. These values are for local testing only.
 
 Open RTSP `8554/tcp`, WebRTC signaling `8889/tcp`, and WebRTC ICE `8189/tcp+udp` on the server firewall. For access across the internet, set MediaMTX `webrtcAdditionalHosts` to the server's public IP or DNS name.

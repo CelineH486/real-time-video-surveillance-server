@@ -4,10 +4,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -22,6 +24,9 @@ import (
 )
 
 var databaseConn *sql.DB
+
+//go:embed web/*
+var webAssets embed.FS
 
 type streamInfo struct {
 	TruckID  string    `json:"truckId"`
@@ -259,6 +264,18 @@ func recordingAPIURL(truckID, cameraID string, start time.Time, duration float64
 
 func startHTTPServer() {
 	mux := http.NewServeMux()
+	webContent, err := fs.Sub(webAssets, "web")
+	if err != nil {
+		log.Fatalf("load web assets: %v", err)
+	}
+	mux.Handle("GET /web/", http.StripPrefix("/web/", http.FileServer(http.FS(webContent))))
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, "/web/", http.StatusTemporaryRedirect)
+	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
