@@ -9,8 +9,8 @@ if (-not (Test-Path -LiteralPath $ConfigPath)) {
 }
 
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-if ($config.cameras.Count -ne 8) {
-    throw "Exactly 8 cameras are required; found $($config.cameras.Count)."
+if ($config.cameras.Count -ne 9) {
+    throw "Exactly 9 cameras are required; found $($config.cameras.Count)."
 }
 
 $server = $config.mediaServer.TrimEnd("/") -replace '^rtsp://', ''

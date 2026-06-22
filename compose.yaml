@@ -1,9 +1,52 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: surveillance
+      POSTGRES_USER: surveillance
+      POSTGRES_PASSWORD: local-development-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U surveillance -d surveillance"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations/000_base.sql:/docker-entrypoint-initdb.d/000_base.sql:ro
+      - ./db/migrations/001_streaming.sql:/docker-entrypoint-initdb.d/001_streaming.sql:ro
+      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/002_dev_seed.sql:ro
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: host=postgres port=5432 user=surveillance password=local-development-only dbname=surveillance sslmode=disable
+      UDP_ADDRESS: :5000
+      HTTP_ADDRESS: :8080
+      API_PUBLIC_BASE_URL: http://localhost:8080
+      STREAM_PUBLIC_BASE_URL: http://localhost:8889
+      PLAYBACK_INTERNAL_BASE_URL: http://mediamtx:9996
+      MEDIAMTX_API_URL: http://mediamtx:9997
+      STREAM_SIGNING_KEY: local-development-signing-key-change-in-production
+      STREAM_PUBLISH_PASSWORD: local-development-publish-password
+      CAMERA_OFFLINE_TIMEOUT: 15s
+    ports:
+      - "8080:8080/tcp"
+      - "5000:5000/udp"
+
   mediamtx:
     image: bluenviron/mediamtx:latest
     restart: unless-stopped
     environment:
-      MTX_AUTHHTTPADDRESS: http://host.docker.internal:8080/internal/mediamtx/auth
+      MTX_AUTHHTTPADDRESS: http://api:8080/internal/mediamtx/auth
+    depends_on:
+      - api
     ports:
       - "8554:8554/tcp"
       - "8889:8889/tcp"
@@ -13,3 +56,6 @@ services:
     volumes:
       - ./deploy/mediamtx.yml:/mediamtx.yml:ro
       - ./recordings:/recordings
+
+volumes:
+  postgres-data:

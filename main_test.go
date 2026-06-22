@@ -20,8 +20,8 @@ func TestSignStreamAccessVariesByQuality(t *testing.T) {
 }
 
 func TestCameraStreamURL(t *testing.T) {
-	url := cameraStreamURL("truck 1", "cam/01", "sub", "signed.token")
-	if !strings.Contains(url, "truck%201/cam%2F01/sub?token=signed.token") {
+	url := cameraStreamURL("truck 1", "cam/01", "sub")
+	if !strings.Contains(url, "truck%201/cam%2F01/sub/whep") {
 		t.Fatalf("unexpected stream URL: %s", url)
 	}
 }
@@ -58,12 +58,22 @@ func TestStreamPathParts(t *testing.T) {
 	}
 }
 
-func TestRecordingURL(t *testing.T) {
-	start := time.Date(2026, time.June, 22, 12, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
-	result := recordingURL("https://video.example.com/", "truck001", "cam01", start, 60.5, "signed.token")
-	for _, expected := range []string{"https://video.example.com/get?", "duration=60.5", "format=mp4", "path=truck001%2Fcam01%2Fmain", "token=signed.token"} {
+func TestMediaMTXRecordingURL(t *testing.T) {
+	start := time.Date(2026, time.June, 22, 12, 30, 0, 123456000, time.FixedZone("UTC+8", 8*60*60))
+	result := mediaMTXRecordingURL("https://video.example.com/", "truck001", "cam01", start, 60.5)
+	for _, expected := range []string{"https://video.example.com/get?", "duration=60.5", "format=mp4", "path=truck001%2Fcam01%2Fmain", ".123456"} {
 		if !strings.Contains(result, expected) {
 			t.Fatalf("recording URL %q does not contain %q", result, expected)
+		}
+	}
+}
+
+func TestRecordingAPIURL(t *testing.T) {
+	start := time.Date(2026, time.June, 22, 12, 30, 0, 0, time.UTC)
+	result := recordingAPIURL("truck001", "cam01", start, 30, "signed.token")
+	for _, expected := range []string{"/api/trucks/truck001/cameras/cam01/recordings/content?", "duration=30", "token=signed.token"} {
+		if !strings.Contains(result, expected) {
+			t.Fatalf("recording API URL %q does not contain %q", result, expected)
 		}
 	}
 }
