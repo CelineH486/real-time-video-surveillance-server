@@ -25,3 +25,45 @@ func TestCameraStreamURL(t *testing.T) {
 		t.Fatalf("unexpected stream URL: %s", url)
 	}
 }
+
+func TestValidateStreamAccess(t *testing.T) {
+	expires := time.Now().Add(time.Minute)
+	token := signStreamAccess("truck001", "cam01", "main", expires)
+	claims, err := validateStreamAccess(token, time.Now())
+	if err != nil {
+		t.Fatalf("valid token was rejected: %v", err)
+	}
+	if claims.TruckID != "truck001" || claims.CameraID != "cam01" || claims.Quality != "main" {
+		t.Fatalf("unexpected claims: %+v", claims)
+	}
+	if _, err := validateStreamAccess(token+"x", time.Now()); err == nil {
+		t.Fatal("tampered token was accepted")
+	}
+}
+
+func TestValidateStreamAccessRejectsExpiredToken(t *testing.T) {
+	token := signStreamAccess("truck001", "cam01", "sub", time.Now().Add(-time.Second))
+	if _, err := validateStreamAccess(token, time.Now()); err == nil {
+		t.Fatal("expired token was accepted")
+	}
+}
+
+func TestStreamPathParts(t *testing.T) {
+	truckID, cameraID, quality, ok := streamPathParts("truck001/cam08/sub")
+	if !ok || truckID != "truck001" || cameraID != "cam08" || quality != "sub" {
+		t.Fatalf("unexpected stream path: %q %q %q %v", truckID, cameraID, quality, ok)
+	}
+	if _, _, _, ok := streamPathParts("truck001/cam08/unknown"); ok {
+		t.Fatal("unknown stream quality was accepted")
+	}
+}
+
+func TestRecordingURL(t *testing.T) {
+	start := time.Date(2026, time.June, 22, 12, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	result := recordingURL("https://video.example.com/", "truck001", "cam01", start, 60.5, "signed.token")
+	for _, expected := range []string{"https://video.example.com/get?", "duration=60.5", "format=mp4", "path=truck001%2Fcam01%2Fmain", "token=signed.token"} {
+		if !strings.Contains(result, expected) {
+			t.Fatalf("recording URL %q does not contain %q", result, expected)
+		}
+	}
+}

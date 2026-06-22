@@ -24,7 +24,8 @@ Run `db/migrations/001_streaming.sql` once against the existing database before 
 - `GET /api/trucks`
 - `GET /api/trucks/{truckID}/cameras` — cameras plus overview `subUrl`
 - `POST /api/trucks/{truckID}/cameras/{cameraID}/play` — validated main-stream information
-- `GET /api/trucks/{truckID}/recordings?cameraId=cam01`
+- `GET /api/trucks/{truckID}/recordings?cameraId=cam01&start=...&end=...` — recorded spans with signed playback URLs
+- `POST /api/trucks/{truckID}/cameras/{cameraID}/recordings/play` — signed MP4 playback URL
 - `GET /health`
 
 Truck status continues to arrive over UDP port 5000. Camera heartbeats can be included without breaking the original payload:
@@ -42,4 +43,26 @@ Truck status continues to arrive over UDP port 5000. Camera heartbeats can be in
 
 The server updates `last_seen_at` for each camera heartbeat. A camera without a heartbeat for `CAMERA_OFFLINE_TIMEOUT` (15 seconds by default) is marked offline.
 
-User authentication and streaming-server token validation must be configured before production exposure. The API already creates short-lived signed stream tokens, but the streaming server must be connected to their validation policy.
+## Start MediaMTX
+
+With the Go server already listening on port 8080:
+
+```powershell
+docker compose up -d mediamtx
+```
+
+Open RTSP `8554/tcp`, WebRTC signaling `8889/tcp`, and WebRTC ICE `8189/tcp+udp` on the server firewall. For access across the internet, set MediaMTX `webrtcAdditionalHosts` to the server's public IP or DNS name.
+
+MediaMTX calls `POST /internal/mediamtx/auth` for every publish, live-read, and playback request. Truck publishers use their `truckId` as the RTSP username and `STREAM_PUBLISH_PASSWORD` as the password. Web viewers use the five-minute token returned by the Go API.
+
+## Start eight truck streams
+
+On the truck computer, copy `truck/streams.example.json` to the ignored file `truck/streams.json`, fill in the eight camera RTSP URLs and server address, then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File truck/start-streams.ps1
+```
+
+Each camera publishes an unchanged high-quality `main` stream and a 360p/12fps `sub` stream. MediaMTX records only `main` in five-minute fMP4 segments; files are retained until an explicit retention policy is chosen.
+
+User login authentication is still required before production exposure. The current viewing API verifies the truck/camera and issues MediaMTX-compatible short-lived stream tokens.

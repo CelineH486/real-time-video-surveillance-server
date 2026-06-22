@@ -1,0 +1,16 @@
+{
+  "truckId": "truck001",
+  "mediaServer": "rtsp://stream.example.com:8554",
+  "publishPassword": "replace-with-a-truck-publish-password",
+  "ffmpeg": "ffmpeg",
+  "cameras": [
+    { "cameraId": "cam01", "source": "rtsp://camera-user:camera-pass@192.168.1.101/live" },
+    { "cameraId": "cam02", "source": "rtsp://camera-user:camera-pass@192.168.1.102/live" },
+    { "cameraId": "cam03", "source": "rtsp://camera-user:camera-pass@192.168.1.103/live" },
+    { "cameraId": "cam04", "source": "rtsp://camera-user:camera-pass@192.168.1.104/live" },
+    { "cameraId": "cam05", "source": "rtsp://camera-user:camera-pass@192.168.1.105/live" },
+    { "cameraId": "cam06", "source": "rtsp://camera-user:camera-pass@192.168.1.106/live" },
+    { "cameraId": "cam07", "source": "rtsp://camera-user:camera-pass@192.168.1.107/live" },
+    { "cameraId": "cam08", "source": "rtsp://camera-user:camera-pass@192.168.1.108/live" }
+  ]
+}

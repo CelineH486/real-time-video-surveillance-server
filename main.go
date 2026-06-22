@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -28,6 +29,39 @@ type streamInfo struct {
 	Protocol string    `json:"protocol"`
 	URL      string    `json:"url"`
 	Token    string    `json:"accessToken"`
+	Expires  time.Time `json:"expiresAt"`
+}
+
+type streamTokenClaims struct {
+	TruckID  string
+	CameraID string
+	Quality  string
+	Expires  time.Time
+}
+
+type mediaMTXAuthRequest struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Token    string `json:"token"`
+	Action   string `json:"action"`
+	Path     string `json:"path"`
+	Protocol string `json:"protocol"`
+}
+
+type recordingPlayRequest struct {
+	Start    time.Time `json:"start"`
+	Duration float64   `json:"durationSeconds"`
+}
+
+type mediaMTXRecordingSpan struct {
+	Start    time.Time `json:"start"`
+	Duration float64   `json:"duration"`
+}
+
+type recordingSpan struct {
+	Start    time.Time `json:"start"`
+	Duration float64   `json:"durationSeconds"`
+	URL      string    `json:"url"`
 	Expires  time.Time `json:"expiresAt"`
 }
 
@@ -115,16 +149,107 @@ func signStreamAccess(truckID, cameraID, quality string, expires time.Time) stri
 	return encodedPayload + "." + signature
 }
 
+func validateStreamAccess(token string, now time.Time) (streamTokenClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return streamTokenClaims{}, fmt.Errorf("invalid token format")
+	}
+	mac := hmac.New(sha256.New, []byte(env("STREAM_SIGNING_KEY", "development-only-change-me")))
+	_, _ = mac.Write([]byte(parts[0]))
+	expected := mac.Sum(nil)
+	actual, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || !hmac.Equal(actual, expected) {
+		return streamTokenClaims{}, fmt.Errorf("invalid token signature")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return streamTokenClaims{}, fmt.Errorf("invalid token payload")
+	}
+	values := strings.Split(string(payload), "|")
+	if len(values) != 4 {
+		return streamTokenClaims{}, fmt.Errorf("invalid token claims")
+	}
+	expiresUnix, err := strconv.ParseInt(values[3], 10, 64)
+	if err != nil {
+		return streamTokenClaims{}, fmt.Errorf("invalid token expiry")
+	}
+	claims := streamTokenClaims{
+		TruckID: values[0], CameraID: values[1], Quality: values[2], Expires: time.Unix(expiresUnix, 0),
+	}
+	if !claims.Expires.After(now) {
+		return streamTokenClaims{}, fmt.Errorf("token expired")
+	}
+	return claims, nil
+}
+
+func streamPathParts(path string) (truckID, cameraID, quality string, ok bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 3 || (parts[2] != "main" && parts[2] != "sub") {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
 func cameraStreamURL(truckID, cameraID, quality, token string) string {
 	base := strings.TrimRight(env("STREAM_PUBLIC_BASE_URL", "http://localhost:8889"), "/")
 	path := url.PathEscape(truckID) + "/" + url.PathEscape(cameraID) + "/" + quality
 	return base + "/" + path + "?token=" + url.QueryEscape(token)
 }
 
+func recordingURL(base, truckID, cameraID string, start time.Time, duration float64, token string) string {
+	query := url.Values{}
+	query.Set("path", strings.Join([]string{truckID, cameraID, "main"}, "/"))
+	query.Set("start", start.Format(time.RFC3339))
+	query.Set("duration", strconv.FormatFloat(duration, 'f', -1, 64))
+	query.Set("format", "mp4")
+	query.Set("token", token)
+	return strings.TrimRight(base, "/") + "/get?" + query.Encode()
+}
+
 func startHTTPServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("POST /internal/mediamtx/auth", func(w http.ResponseWriter, r *http.Request) {
+		var request mediaMTXAuthRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil {
+			http.Error(w, "invalid authentication request", http.StatusBadRequest)
+			return
+		}
+		truckID, cameraID, quality, ok := streamPathParts(request.Path)
+		if !ok {
+			http.Error(w, "invalid stream path", http.StatusForbidden)
+			return
+		}
+		switch request.Action {
+		case "publish":
+			if request.User != truckID || !hmac.Equal(
+				[]byte(request.Password), []byte(env("STREAM_PUBLISH_PASSWORD", "development-publish-password")),
+			) {
+				http.Error(w, "publish denied", http.StatusUnauthorized)
+				return
+			}
+			exists, err := db.CameraExists(databaseConn, truckID, cameraID)
+			if err != nil {
+				http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if !exists {
+				http.Error(w, "camera not found", http.StatusForbidden)
+				return
+			}
+		case "read", "playback":
+			claims, err := validateStreamAccess(request.Token, time.Now())
+			if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || claims.Quality != quality {
+				http.Error(w, "stream access denied", http.StatusUnauthorized)
+				return
+			}
+		default:
+			http.Error(w, "action denied", http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /api/cameras", func(w http.ResponseWriter, _ *http.Request) {
 		cameras, err := db.GetCameras(databaseConn)
@@ -178,12 +303,93 @@ func startHTTPServer() {
 		})
 	})
 	mux.HandleFunc("GET /api/trucks/{truckID}/recordings", func(w http.ResponseWriter, r *http.Request) {
-		recordings, err := db.GetRecordings(databaseConn, r.PathValue("truckID"), r.URL.Query().Get("cameraId"))
+		truckID, cameraID := r.PathValue("truckID"), r.URL.Query().Get("cameraId")
+		if cameraID == "" {
+			http.Error(w, "cameraId is required", http.StatusBadRequest)
+			return
+		}
+		exists, err := db.CameraExists(databaseConn, truckID, cameraID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, recordings)
+		if !exists {
+			http.Error(w, "camera not found", http.StatusNotFound)
+			return
+		}
+		expires := time.Now().Add(5 * time.Minute)
+		token := signStreamAccess(truckID, cameraID, "main", expires)
+		query := url.Values{}
+		query.Set("path", strings.Join([]string{truckID, cameraID, "main"}, "/"))
+		query.Set("token", token)
+		for _, parameter := range []string{"start", "end"} {
+			if value := r.URL.Query().Get(parameter); value != "" {
+				if _, err := time.Parse(time.RFC3339, value); err != nil {
+					http.Error(w, parameter+" must use RFC3339 format", http.StatusBadRequest)
+					return
+				}
+				query.Set(parameter, value)
+			}
+		}
+		internalBase := strings.TrimRight(env("PLAYBACK_INTERNAL_BASE_URL", "http://localhost:9996"), "/")
+		request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, internalBase+"/list?"+query.Encode(), nil)
+		if err != nil {
+			http.Error(w, "create playback request", http.StatusInternalServerError)
+			return
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		response, err := client.Do(request)
+		if err != nil {
+			http.Error(w, "recording service unavailable", http.StatusBadGateway)
+			return
+		}
+		defer response.Body.Close()
+		if response.StatusCode/100 != 2 {
+			http.Error(w, "recording service rejected request", http.StatusBadGateway)
+			return
+		}
+		var source []mediaMTXRecordingSpan
+		if err := json.NewDecoder(response.Body).Decode(&source); err != nil {
+			http.Error(w, "invalid recording service response", http.StatusBadGateway)
+			return
+		}
+		publicBase := env("PLAYBACK_PUBLIC_BASE_URL", "http://localhost:9996")
+		result := make([]recordingSpan, 0, len(source))
+		for _, span := range source {
+			result = append(result, recordingSpan{
+				Start: span.Start, Duration: span.Duration,
+				URL: recordingURL(publicBase, truckID, cameraID, span.Start, span.Duration, token), Expires: expires,
+			})
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /api/trucks/{truckID}/cameras/{cameraID}/recordings/play", func(w http.ResponseWriter, r *http.Request) {
+		truckID, cameraID := r.PathValue("truckID"), r.PathValue("cameraID")
+		var request recordingPlayRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil || request.Start.IsZero() {
+			http.Error(w, "start and durationSeconds are required", http.StatusBadRequest)
+			return
+		}
+		if request.Duration <= 0 || request.Duration > 24*60*60 {
+			http.Error(w, "durationSeconds must be between 0 and 86400", http.StatusBadRequest)
+			return
+		}
+		exists, err := db.CameraExists(databaseConn, truckID, cameraID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !exists {
+			http.Error(w, "camera not found", http.StatusNotFound)
+			return
+		}
+		expires := time.Now().Add(5 * time.Minute)
+		token := signStreamAccess(truckID, cameraID, "main", expires)
+		playbackBase := strings.TrimRight(env("PLAYBACK_PUBLIC_BASE_URL", "http://localhost:9996"), "/")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"url":         recordingURL(playbackBase, truckID, cameraID, request.Start, request.Duration, token),
+			"accessToken": token, "expiresAt": expires,
+		})
 	})
 
 	address := env("HTTP_ADDRESS", ":8080")

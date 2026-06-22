@@ -1,0 +1,15 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: unless-stopped
+    environment:
+      MTX_AUTHHTTPADDRESS: http://host.docker.internal:8080/internal/mediamtx/auth
+    ports:
+      - "8554:8554/tcp"
+      - "8889:8889/tcp"
+      - "8189:8189/tcp"
+      - "8189:8189/udp"
+      - "9996:9996/tcp"
+    volumes:
+      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+      - ./recordings:/recordings

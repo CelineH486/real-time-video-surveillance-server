@@ -1,0 +1,44 @@
+logLevel: info
+
+# Truck-side FFmpeg publishes RTSP over TCP.
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# Responsive Web clients read streams through WebRTC/WHEP.
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcAllowOrigins: ["*"]
+
+# MediaMTX asks the Go server before accepting a publisher or viewer.
+authMethod: http
+authHTTPAddress: http://127.0.0.1:8080/internal/mediamtx/auth
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+# Expose completed fMP4 recordings. Playback authorization will be added
+# together with the Web history-player endpoint.
+playback: true
+playbackAddress: :9996
+
+pathDefaults:
+  source: publisher
+  overridePublisher: false
+  record: false
+
+paths:
+  # Record only high-quality streams. Overview sub-streams remain live-only.
+  "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/main$":
+    record: true
+    recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 5m
+    recordDeleteAfter: 0s
+
+  "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/sub$":
+    record: false
