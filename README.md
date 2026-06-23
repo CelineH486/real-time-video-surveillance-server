@@ -2,6 +2,19 @@
 
 Go control API for truck status, camera metadata, live-stream access, and recording indexes. Live video flows directly between the truck, MediaMTX, and the browser. Historical MP4 responses are authorized and proxied by the Go API.
 
+## Project structure
+
+```text
+controllers/  HTTP request validation and responses
+services/     streaming tokens, recordings, and status synchronization
+routes/       all HTTP route registration
+db/           PostgreSQL queries and migrations
+models/       shared data models
+web/          responsive monitoring dashboard
+truck/        truck-side FFmpeg publisher scripts
+main.go       dependency wiring and server startup only
+```
+
 ## Streaming layout
 
 Each truck publishes a main and sub stream for each of its nine cameras:
