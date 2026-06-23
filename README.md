@@ -73,13 +73,14 @@ Each camera publishes an unchanged high-quality `main` stream and a 360p/12fps `
 
 ## End-to-end video test
 
-The test script publishes `cam1.mp4` through `cam9.mp4` as nine main/sub camera pairs:
+Place local test files `cam1.mp4` through `cam9.mp4` in the ignored directory `testdata/videos/`. The test script publishes them as nine main/sub camera pairs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/e2e-video-test.ps1 `
-  -VideoDirectory C:\path\to\camera-monitor\videos `
-  -LoopCount 3
+  -LoopCount 20
 ```
+
+`-VideoDirectory` remains available when you want to test a different set of `cam1.mp4` through `cam9.mp4` files.
 
 During publishing, `GET /api/trucks/truck001/cameras` reports all cameras as `online`. They become `offline` after the configured timeout when the publishers stop. Completed main streams are available through the recordings API.
 

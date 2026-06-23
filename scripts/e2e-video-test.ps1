@@ -1,6 +1,5 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$VideoDirectory,
+    [string]$VideoDirectory = (Join-Path $PSScriptRoot "..\testdata\videos"),
     [int]$LoopCount = 3
 )
 
