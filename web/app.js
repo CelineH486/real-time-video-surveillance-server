@@ -1,4 +1,4 @@
-const truckId = new URLSearchParams(location.search).get("truckId") || "truck001";
+let truckId = new URLSearchParams(location.search).get("truckId") || "truck001";
 const cards = new Map();
 let selectedCamera = null;
 let mainPlayer = null;
@@ -72,16 +72,18 @@ const template = document.getElementById("cameraCardTemplate");
 const notice = document.getElementById("notice");
 const summary = document.querySelector(".summary");
 const summaryText = document.getElementById("summaryText");
+const truckLabel = document.getElementById("truckLabel");
+const truckSelect = document.getElementById("truckSelect");
 const dialog = document.getElementById("viewerDialog");
 const mainVideo = document.getElementById("mainVideo");
 const viewerState = document.getElementById("viewerState");
 const recordingList = document.getElementById("recordingList");
 
-document.getElementById("truckLabel").textContent = truckId.toUpperCase();
 document.getElementById("refreshButton").addEventListener("click", () => refreshCameras(true));
 document.getElementById("closeViewer").addEventListener("click", closeViewer);
 document.getElementById("liveButton").addEventListener("click", startMainStream);
 document.getElementById("historyButton").addEventListener("click", loadRecordings);
+truckSelect.addEventListener("change", () => switchTruck(truckSelect.value));
 dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeViewer(); });
 
 function createCard(camera) {
@@ -97,6 +99,55 @@ function createCard(camera) {
   return card;
 }
 
+async function loadTrucks() {
+  try {
+    const response = await fetch("/api/trucks", { cache: "no-store" });
+    if (!response.ok) throw new Error(`API ${response.status}`);
+    const trucks = await response.json();
+    truckSelect.replaceChildren();
+
+    for (const truck of trucks) {
+      const option = document.createElement("option");
+      option.value = truck.truckId;
+      option.textContent = `${truck.truckId.toUpperCase()} · ${truck.plateNo} · ${truck.status === "online" ? "在線" : "離線"}`;
+      truckSelect.appendChild(option);
+    }
+
+    if (trucks.length && !trucks.some(truck => truck.truckId === truckId)) {
+      truckId = trucks[0].truckId;
+    }
+    truckSelect.value = truckId;
+    updateTruckLabel();
+  } catch (error) {
+    showNotice(`讀取車機清單失敗：${error.message}`);
+  }
+}
+
+async function switchTruck(nextTruckId) {
+  if (!nextTruckId || nextTruckId === truckId) return;
+  truckId = nextTruckId;
+  history.replaceState(null, "", `?truckId=${encodeURIComponent(truckId)}`);
+  await closeViewerIfOpen();
+  await clearCameraGrid();
+  updateTruckLabel();
+  await refreshCameras(true);
+}
+
+function updateTruckLabel() {
+  truckLabel.textContent = truckId.toUpperCase();
+}
+
+async function clearCameraGrid() {
+  for (const card of cards.values()) await card.player.close();
+  cards.clear();
+  grid.replaceChildren();
+}
+
+function showNotice(message) {
+  notice.textContent = message;
+  notice.hidden = false;
+}
+
 async function refreshCameras(forceRestart = false) {
   try {
     const response = await fetch(`/api/trucks/${encodeURIComponent(truckId)}/cameras`, { cache: "no-store" });
@@ -105,7 +156,7 @@ async function refreshCameras(forceRestart = false) {
     notice.hidden = true;
     summary.classList.add("connected");
     const onlineCount = cameras.filter(camera => camera.status === "online").length;
-    summaryText.textContent = `${onlineCount} / ${cameras.length} 路在線`;
+    summaryText.textContent = `${onlineCount} / ${cameras.length} 支攝影機在線`;
 
     for (const camera of cameras) {
       const card = cards.get(camera.cameraId) || createCard(camera);
@@ -122,10 +173,9 @@ async function refreshCameras(forceRestart = false) {
       }
     }
   } catch (error) {
-    notice.textContent = `無法取得攝影機資料：${error.message}`;
-    notice.hidden = false;
+    showNotice(`讀取攝影機失敗：${error.message}`);
     summary.classList.remove("connected");
-    summaryText.textContent = "伺服器連線失敗";
+    summaryText.textContent = "連線異常，請稍後再試";
   }
 }
 
@@ -146,7 +196,7 @@ async function startMainStream() {
   mainVideo.pause();
   mainVideo.removeAttribute("src");
   mainVideo.load();
-  viewerState.textContent = "正在載入高畫質即時影像…";
+  viewerState.textContent = "等待載入單支攝影機即時影像";
   viewerState.classList.remove("ready");
   recordingList.hidden = true;
   try {
@@ -156,14 +206,14 @@ async function startMainStream() {
     mainPlayer ||= new WHEPPlayer(mainVideo, state => viewerState.classList.toggle("ready", state === "playing"));
     await mainPlayer.start(stream.url, stream.accessToken);
   } catch (error) {
-    viewerState.textContent = `無法播放即時影像：${error.message}`;
+    viewerState.textContent = `無法播放即時畫面：${error.message}`;
   }
 }
 
 async function loadRecordings() {
   if (!selectedCamera) return;
   await mainPlayer?.close();
-  viewerState.textContent = "正在讀取歷史錄影…";
+  viewerState.textContent = "正在讀取歷史影像";
   viewerState.classList.remove("ready");
   try {
     const response = await fetch(`/api/trucks/${encodeURIComponent(truckId)}/recordings?cameraId=${encodeURIComponent(selectedCamera.cameraId)}`);
@@ -177,11 +227,11 @@ async function loadRecordings() {
       button.addEventListener("click", () => playRecording(recording.url));
       recordingList.appendChild(button);
     }
-    if (!recordings.length) recordingList.textContent = "目前沒有錄影資料";
+    if (!recordings.length) recordingList.textContent = "目前沒有歷史影像資料";
     recordingList.hidden = false;
-    viewerState.textContent = "請選擇一段錄影";
+    viewerState.textContent = "請選擇一段歷史影像";
   } catch (error) {
-    viewerState.textContent = `無法取得歷史錄影：${error.message}`;
+    viewerState.textContent = `讀取歷史影像失敗：${error.message}`;
   }
 }
 
@@ -193,18 +243,27 @@ function playRecording(url) {
   viewerState.classList.add("ready");
 }
 
-async function closeViewer() {
+async function closeViewerIfOpen() {
+  if (dialog.open) await closeViewer(false);
+}
+
+async function closeViewer(restartGrid = true) {
   await mainPlayer?.close();
   mainVideo.pause();
   mainVideo.removeAttribute("src");
   mainVideo.load();
   selectedCamera = null;
-  dialog.close();
-  refreshCameras(true);
+  if (dialog.open) dialog.close();
+  if (restartGrid) refreshCameras(true);
 }
 
-refreshCameras();
-refreshTimer = setInterval(refreshCameras, 5000);
+async function init() {
+  await loadTrucks();
+  await refreshCameras();
+  refreshTimer = setInterval(refreshCameras, 5000);
+}
+
+init();
 window.addEventListener("beforeunload", () => {
   clearInterval(refreshTimer);
   mainPlayer?.close();
