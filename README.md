@@ -30,7 +30,7 @@ The truck publishes RTSP. The streaming server exposes WebRTC to the responsive 
 
 Copy `.env.example` values into the process environment. `STREAM_PUBLIC_BASE_URL` is the browser-facing WebRTC endpoint of the streaming server. `STREAM_SIGNING_KEY` signs five-minute stream tokens and must be replaced in production. Configure the streaming server to validate the same token before exposing it publicly.
 
-Run `db/migrations/000_base.sql` and `db/migrations/001_streaming.sql` in order when installing against an existing PostgreSQL server. The Docker Compose development stack applies them automatically.
+Run `db/migrations/000_base.sql`, `db/migrations/001_streaming.sql`, and `db/migrations/002_composite_camera_key.sql` in order when installing against an existing PostgreSQL server. The Docker Compose development stack applies them automatically.
 
 ## API
 

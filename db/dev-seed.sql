@@ -9,4 +9,4 @@ SELECT
     'Camera ' || camera_number,
     'offline'
 FROM generate_series(1, 9) AS camera_number
-ON CONFLICT (camera_id) DO NOTHING;
+ON CONFLICT (truck_id, camera_id) DO NOTHING;
