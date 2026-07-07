@@ -17,7 +17,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./db/migrations/000_base.sql:/docker-entrypoint-initdb.d/000_base.sql:ro
       - ./db/migrations/001_streaming.sql:/docker-entrypoint-initdb.d/001_streaming.sql:ro
-      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/002_dev_seed.sql:ro
+      - ./db/migrations/002_composite_camera_key.sql:/docker-entrypoint-initdb.d/002_composite_camera_key.sql:ro
+      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/003_dev_seed.sql:ro
 
   api:
     build: .
