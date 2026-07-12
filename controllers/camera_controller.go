@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"real-time-video-surveillance-system/apiresponse"
 	"real-time-video-surveillance-system/db"
 	"real-time-video-surveillance-system/services"
 )
@@ -18,10 +19,14 @@ func NewCameraController(database *sql.DB, streams *services.StreamService) *Cam
 	return &CameraController{database: database, streams: streams}
 }
 
-func (c *CameraController) List(w http.ResponseWriter, _ *http.Request) {
-	cameras, err := db.GetCameras(c.database)
+func (c *CameraController) List(w http.ResponseWriter, r *http.Request) {
+	user, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	cameras, err := db.GetCamerasForUser(c.database, user.UserID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, apiresponse.CodeCamerasUnavailable, apiresponse.MessageCamerasUnavailableForUser)
 		return
 	}
 	writeJSON(w, http.StatusOK, cameras)
@@ -29,9 +34,12 @@ func (c *CameraController) List(w http.ResponseWriter, _ *http.Request) {
 
 func (c *CameraController) ListByTruck(w http.ResponseWriter, r *http.Request) {
 	truckID := r.PathValue("truckID")
+	if _, ok := requireTruckAccess(c.database, w, r, truckID); !ok {
+		return
+	}
 	cameras, err := db.GetCamerasByTruckID(c.database, truckID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, apiresponse.CodeCamerasUnavailable, apiresponse.MessageCamerasUnavailableForTruck)
 		return
 	}
 	expires := time.Now().Add(5 * time.Minute)
