@@ -3,6 +3,14 @@ const cards = new Map();
 let selectedCamera = null;
 let mainPlayer = null;
 let refreshTimer = null;
+const apiToken = localStorage.getItem("surveillanceApiToken") ||
+  (location.hostname === "localhost" || location.hostname === "127.0.0.1" ? "dev-user-token" : "");
+
+function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (apiToken) headers.set("Authorization", `Bearer ${apiToken}`);
+  return fetch(url, { ...options, headers });
+}
 
 class WHEPPlayer {
   constructor(video, onState) {
@@ -101,7 +109,7 @@ function createCard(camera) {
 
 async function loadTrucks() {
   try {
-    const response = await fetch("/api/trucks", { cache: "no-store" });
+    const response = await apiFetch("/api/trucks", { cache: "no-store" });
     if (!response.ok) throw new Error(`API ${response.status}`);
     const trucks = await response.json();
     truckSelect.replaceChildren();
@@ -150,7 +158,7 @@ function showNotice(message) {
 
 async function refreshCameras(forceRestart = false) {
   try {
-    const response = await fetch(`/api/trucks/${encodeURIComponent(truckId)}/cameras`, { cache: "no-store" });
+    const response = await apiFetch(`/api/trucks/${encodeURIComponent(truckId)}/cameras`, { cache: "no-store" });
     if (!response.ok) throw new Error(`API ${response.status}`);
     const cameras = await response.json();
     notice.hidden = true;
@@ -200,7 +208,7 @@ async function startMainStream() {
   viewerState.classList.remove("ready");
   recordingList.hidden = true;
   try {
-    const response = await fetch(`/api/trucks/${encodeURIComponent(truckId)}/cameras/${encodeURIComponent(selectedCamera.cameraId)}/play`, { method: "POST" });
+    const response = await apiFetch(`/api/trucks/${encodeURIComponent(truckId)}/cameras/${encodeURIComponent(selectedCamera.cameraId)}/play`, { method: "POST" });
     if (!response.ok) throw new Error(`API ${response.status}`);
     const stream = await response.json();
     mainPlayer ||= new WHEPPlayer(mainVideo, state => viewerState.classList.toggle("ready", state === "playing"));
@@ -216,7 +224,7 @@ async function loadRecordings() {
   viewerState.textContent = "正在讀取歷史影像";
   viewerState.classList.remove("ready");
   try {
-    const response = await fetch(`/api/trucks/${encodeURIComponent(truckId)}/recordings?cameraId=${encodeURIComponent(selectedCamera.cameraId)}`);
+    const response = await apiFetch(`/api/trucks/${encodeURIComponent(truckId)}/recordings?cameraId=${encodeURIComponent(selectedCamera.cameraId)}`);
     if (!response.ok) throw new Error(`API ${response.status}`);
     const recordings = await response.json();
     recordingList.replaceChildren();

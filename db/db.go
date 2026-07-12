@@ -1,14 +1,23 @@
 package db
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"time"
 
 	_ "github.com/lib/pq"
 
 	"real-time-video-surveillance-system/models"
 )
+
+type AuthenticatedUser struct {
+	UserID      string
+	Email       string
+	DisplayName string
+}
 
 func Connect() (*sql.DB, error) {
 
@@ -77,6 +86,42 @@ func GetCameras(dbConn *sql.DB) ([]map[string]string, error) {
 	return cameras, nil
 }
 
+func GetCamerasForUser(dbConn *sql.DB, userID string) ([]map[string]string, error) {
+	rows, err := dbConn.Query(`
+		SELECT
+			c.camera_id,
+			c.truck_id,
+			c.name,
+			c.status
+		FROM cameras c
+		INNER JOIN user_trucks ut ON ut.truck_id = c.truck_id
+		WHERE ut.user_id = $1
+		ORDER BY c.truck_id, c.camera_id
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cameras []map[string]string
+	for rows.Next() {
+		var cameraID string
+		var truckID string
+		var name string
+		var status string
+		if err := rows.Scan(&cameraID, &truckID, &name, &status); err != nil {
+			return nil, err
+		}
+		cameras = append(cameras, map[string]string{
+			"cameraId": cameraID,
+			"truckId":  truckID,
+			"name":     name,
+			"status":   status,
+		})
+	}
+	return cameras, rows.Err()
+}
+
 func GetTrucks(dbConn *sql.DB) ([]map[string]string, error) {
 
 	rows, err := dbConn.Query(`
@@ -116,6 +161,39 @@ func GetTrucks(dbConn *sql.DB) ([]map[string]string, error) {
 	}
 
 	return trucks, nil
+}
+
+func GetTrucksForUser(dbConn *sql.DB, userID string) ([]map[string]string, error) {
+	rows, err := dbConn.Query(`
+		SELECT
+			t.truck_id,
+			t.plate_no,
+			t.status
+		FROM trucks t
+		INNER JOIN user_trucks ut ON ut.truck_id = t.truck_id
+		WHERE ut.user_id = $1
+		ORDER BY t.truck_id
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var trucks []map[string]string
+	for rows.Next() {
+		var truckID string
+		var plateNo string
+		var status string
+		if err := rows.Scan(&truckID, &plateNo, &status); err != nil {
+			return nil, err
+		}
+		trucks = append(trucks, map[string]string{
+			"truckId": truckID,
+			"plateNo": plateNo,
+			"status":  status,
+		})
+	}
+	return trucks, rows.Err()
 }
 
 func GetCamerasByTruckID(dbConn *sql.DB, truckID string) ([]map[string]string, error) {
@@ -200,6 +278,41 @@ func CameraExists(dbConn *sql.DB, truckID string, cameraID string) (bool, error)
 		)
 	`, truckID, cameraID).Scan(&exists)
 	return exists, err
+}
+
+func UserByAPIToken(dbConn *sql.DB, token string, now time.Time) (AuthenticatedUser, bool, error) {
+	tokenHash := APITokenHash(token)
+	var user AuthenticatedUser
+	err := dbConn.QueryRow(`
+		SELECT u.user_id, u.email, u.display_name
+		FROM user_api_tokens t
+		INNER JOIN users u ON u.user_id = t.user_id
+		WHERE t.token_hash = $1
+		  AND u.status = 'active'
+		  AND (t.expires_at IS NULL OR t.expires_at > $2)
+	`, tokenHash, now).Scan(&user.UserID, &user.Email, &user.DisplayName)
+	if err == sql.ErrNoRows {
+		return AuthenticatedUser{}, false, nil
+	}
+	if err != nil {
+		return AuthenticatedUser{}, false, err
+	}
+	return user, true, nil
+}
+
+func UserCanAccessTruck(dbConn *sql.DB, userID string, truckID string) (bool, error) {
+	var allowed bool
+	err := dbConn.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM user_trucks WHERE user_id = $1 AND truck_id = $2
+		)
+	`, userID, truckID).Scan(&allowed)
+	return allowed, err
+}
+
+func APITokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func GetRecordings(dbConn *sql.DB, truckID string, cameraID string) ([]models.Recording, error) {
