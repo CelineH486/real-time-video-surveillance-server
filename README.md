@@ -30,7 +30,20 @@ The truck publishes RTSP. The streaming server exposes WebRTC to the responsive 
 
 Copy `.env.example` values into the process environment. `STREAM_PUBLIC_BASE_URL` is the browser-facing WebRTC endpoint of the streaming server. `STREAM_SIGNING_KEY` signs five-minute stream tokens and must be replaced in production. Configure the streaming server to validate the same token before exposing it publicly.
 
-Run `db/migrations/000_base.sql`, `db/migrations/001_streaming.sql`, and `db/migrations/002_composite_camera_key.sql` in order when installing against an existing PostgreSQL server. The Docker Compose development stack applies them automatically.
+User-facing API routes require an `Authorization: Bearer <api-token>` header. API tokens are stored only as SHA-256 hashes in `user_api_tokens`, and truck visibility is granted through `user_trucks`. The local Docker seed creates a development user that can view `truck001` with token `dev-user-token`; replace this with a real login/JWT flow before production.
+
+API exceptions are returned as JSON:
+
+```json
+{
+  "error": {
+    "code": "truck_access_denied",
+    "message": "The authenticated user is not assigned to this truck"
+  }
+}
+```
+
+Run `db/migrations/000_base.sql`, `db/migrations/001_streaming.sql`, `db/migrations/002_composite_camera_key.sql`, and `db/migrations/003_user_authorization.sql` in order when installing against an existing PostgreSQL server. The Docker Compose development stack applies them automatically.
 
 ## API
 
@@ -66,7 +79,7 @@ docker compose up -d --build
 
 Open the responsive monitoring dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer.
 
-The development database is seeded with `truck001` and `cam01` through `cam09`. These values are for local testing only.
+The development database is seeded with `truck001`, `cam01` through `cam09`, and a development viewer token. These values are for local testing only.
 
 Open RTSP `8554/tcp`, WebRTC signaling `8889/tcp`, and WebRTC ICE `8189/tcp+udp` on the server firewall. For access across the internet, set MediaMTX `webrtcAdditionalHosts` to the server's public IP or DNS name.
 
@@ -97,4 +110,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/e2e-video-test.ps1 `
 
 During publishing, `GET /api/trucks/truck001/cameras` reports all cameras as `online`. They become `offline` after the configured timeout when the publishers stop. Completed main streams are available through the recordings API.
 
-User login authentication is still required before production exposure. The current viewing API verifies the truck/camera and issues MediaMTX-compatible short-lived stream tokens.
+## Authorization E2E test
+
+After starting the target stack with seeded or equivalent test data, run the authorization E2E test with an explicit API base URL and API token:
+
+```bash
+E2E_API_BASE_URL=http://localhost:8080 \
+E2E_API_TOKEN=dev-user-token \
+go test -tags=e2e ./tests/e2e
+```
+
+The test uses AAA structure and validates the viewer authorization flow only: missing API tokens are rejected, the configured user can access `truck001`, unassigned trucks are forbidden, stream tokens are issued for assigned cameras, and the issued token passes the MediaMTX auth hook. `E2E_API_BASE_URL` and `E2E_API_TOKEN` are required. Override seeded identifiers with `E2E_TRUCK_ID`, `E2E_CAMERA_ID`, or `E2E_UNASSIGNED_TRUCK_ID`.
+
+User login authentication is still required before production exposure. The current viewing API verifies the API bearer token, checks whether the user can access the requested truck, and then issues MediaMTX-compatible short-lived stream tokens.

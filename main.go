@@ -85,6 +85,7 @@ func main() {
 		env("STREAM_SIGNING_KEY", "development-only-change-me"),
 		env("STREAM_PUBLISH_PASSWORD", "development-publish-password"),
 	)
+	authService := services.NewAuthService(database)
 	recordingService := services.NewRecordingService(
 		env("PLAYBACK_INTERNAL_BASE_URL", "http://localhost:9996"),
 		env("API_PUBLIC_BASE_URL", "http://localhost:8080"),
@@ -106,6 +107,7 @@ func main() {
 	handler := appRoutes.New(appRoutes.Controllers{
 		Health: healthController, Trucks: truckController, Cameras: cameraController,
 		Streams: streamController, Recordings: recordingController, MediaMTX: mediaMTXController,
+		Auth: authService,
 	}, webContent)
 	handlerWithCORS := withCORS(handler, env("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:8080"))
 

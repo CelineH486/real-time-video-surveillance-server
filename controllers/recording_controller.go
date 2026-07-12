@@ -3,12 +3,14 @@ package controllers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
 
+	"real-time-video-surveillance-system/apiresponse"
 	"real-time-video-surveillance-system/db"
 	"real-time-video-surveillance-system/services"
 )
@@ -30,8 +32,11 @@ func NewRecordingController(database *sql.DB, recordings *services.RecordingServ
 
 func (c *RecordingController) List(w http.ResponseWriter, r *http.Request) {
 	truckID, cameraID := r.PathValue("truckID"), r.URL.Query().Get("cameraId")
+	if _, ok := requireTruckAccess(c.database, w, r, truckID); !ok {
+		return
+	}
 	if cameraID == "" {
-		http.Error(w, "cameraId is required", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, apiresponse.CodeCameraIDRequired, apiresponse.MessageCameraIDRequired)
 		return
 	}
 	if !c.cameraExists(w, truckID, cameraID) {
@@ -40,14 +45,14 @@ func (c *RecordingController) List(w http.ResponseWriter, r *http.Request) {
 	for _, parameter := range []string{"start", "end"} {
 		if value := r.URL.Query().Get(parameter); value != "" {
 			if _, err := time.Parse(time.RFC3339, value); err != nil {
-				http.Error(w, parameter+" must use RFC3339 format", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidTimeFormat, fmt.Sprintf(apiresponse.MessageQueryTimeFormat, parameter))
 				return
 			}
 		}
 	}
 	recordings, err := c.recordings.List(r.Context(), truckID, cameraID, r.URL.Query().Get("start"), r.URL.Query().Get("end"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingListUnavailable)
 		return
 	}
 	writeJSON(w, http.StatusOK, recordings)
@@ -55,13 +60,16 @@ func (c *RecordingController) List(w http.ResponseWriter, r *http.Request) {
 
 func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 	truckID, cameraID := r.PathValue("truckID"), r.PathValue("cameraID")
+	if _, ok := requireTruckAccess(c.database, w, r, truckID); !ok {
+		return
+	}
 	var request recordingPlayRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&request); err != nil || request.Start.IsZero() {
-		http.Error(w, "start and durationSeconds are required", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingPlayRequest, apiresponse.MessageInvalidRecordingPlayRequest)
 		return
 	}
 	if request.Duration <= 0 || request.Duration > 24*60*60 {
-		http.Error(w, "durationSeconds must be between 0 and 86400", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingDuration, apiresponse.MessageInvalidRecordingDuration)
 		return
 	}
 	if !c.cameraExists(w, truckID, cameraID) {
@@ -79,27 +87,27 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 	truckID, cameraID, token := r.PathValue("truckID"), r.PathValue("cameraID"), r.URL.Query().Get("token")
 	claims, err := c.streams.ValidateAccess(token, time.Now())
 	if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || claims.Quality != "main" {
-		http.Error(w, "recording access denied", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
 	start, err := time.Parse(time.RFC3339, r.URL.Query().Get("start"))
 	if err != nil {
-		http.Error(w, "start must use RFC3339 format", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidTimeFormat, fmt.Sprintf(apiresponse.MessageQueryTimeFormat, "start"))
 		return
 	}
 	duration, err := strconv.ParseFloat(r.URL.Query().Get("duration"), 64)
 	if err != nil || duration <= 0 || duration > 24*60*60 {
-		http.Error(w, "invalid duration", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingDuration, apiresponse.MessageQueryDurationRange)
 		return
 	}
 	response, err := c.recordings.Open(r.Context(), truckID, cameraID, start, duration, token)
 	if err != nil {
-		http.Error(w, "recording service unavailable", http.StatusBadGateway)
+		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingOpenUnavailable)
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode/100 != 2 {
-		http.Error(w, "recording service rejected request", http.StatusBadGateway)
+		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceRejected, apiresponse.MessageRecordingServiceRejected)
 		return
 	}
 	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
@@ -112,11 +120,11 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 func (c *RecordingController) cameraExists(w http.ResponseWriter, truckID, cameraID string) bool {
 	exists, err := db.CameraExists(c.database, truckID, cameraID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, apiresponse.CodeCameraLookupFailed, apiresponse.MessageCameraLookupFailed)
 		return false
 	}
 	if !exists {
-		http.Error(w, "camera not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, apiresponse.CodeCameraNotFound, apiresponse.MessageCameraNotFound)
 		return false
 	}
 	return true
