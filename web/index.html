@@ -15,27 +15,42 @@
     </div>
     <div class="summary" aria-live="polite">
       <span class="summary-dot"></span>
-      <span id="summaryText">等待連線中</span>
+      <span id="summaryText">選擇車機開始監控</span>
     </div>
   </header>
 
   <main>
-    <section class="section-heading">
-      <div>
-        <p class="section-kicker" id="truckLabel">TRUCK</p>
-        <h2>車機攝影機總覽</h2>
+    <section id="truckView" class="view">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">TRUCK</p>
+          <h2>選擇車機</h2>
+        </div>
+        <button id="reloadTrucksButton" class="ghost-button" type="button">重新整理</button>
       </div>
-      <div class="toolbar">
-        <label class="truck-picker">
-          <span>選擇車機</span>
-          <select id="truckSelect" aria-label="選擇車機"></select>
-        </label>
-        <button id="refreshButton" class="ghost-button" type="button">重新整理</button>
-      </div>
+      <div id="truckNotice" class="notice" hidden></div>
+      <section id="truckList" class="truck-list" aria-label="車機列表"></section>
     </section>
 
-    <div id="notice" class="notice" hidden></div>
-    <section id="cameraGrid" class="camera-grid" aria-label="攝影機即時畫面"></section>
+    <section id="cameraView" class="view" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker" id="truckLabel">TRUCK</p>
+          <h2>車機攝影機總覽</h2>
+        </div>
+        <div class="toolbar">
+          <button id="backToTrucksButton" class="ghost-button" type="button">返回車機列表</button>
+          <label class="truck-picker">
+            <span>選擇車機</span>
+            <select id="truckSelect" aria-label="選擇車機"></select>
+          </label>
+          <button id="refreshButton" class="ghost-button" type="button">重新整理</button>
+        </div>
+      </div>
+
+      <div id="notice" class="notice" hidden></div>
+      <section id="cameraGrid" class="camera-grid" aria-label="攝影機九宮格"></section>
+    </section>
   </main>
 
   <dialog id="viewerDialog" class="viewer-dialog">
@@ -50,18 +65,30 @@
 
       <div class="viewer-stage">
         <video id="mainVideo" autoplay muted playsinline controls></video>
-        <div id="viewerState" class="viewer-state">等待載入即時影像</div>
+        <div id="viewerState" class="viewer-state">準備載入即時影像</div>
       </div>
 
       <footer class="viewer-footer">
         <div class="viewer-actions">
-          <button id="liveButton" class="primary-button" type="button">即時畫面</button>
-          <button id="historyButton" class="ghost-button" type="button">歷史回放</button>
+          <button id="liveButton" class="primary-button" type="button">即時影像</button>
+          <button id="historyButton" class="ghost-button" type="button">歷史錄影</button>
         </div>
         <div id="recordingList" class="recording-list" hidden></div>
       </footer>
     </div>
   </dialog>
+
+  <template id="truckCardTemplate">
+    <article class="truck-card">
+      <button class="truck-open" type="button">
+        <div>
+          <p class="truck-id"></p>
+          <h3 class="truck-plate"></h3>
+        </div>
+        <span class="status-badge"></span>
+      </button>
+    </article>
+  </template>
 
   <template id="cameraCardTemplate">
     <article class="camera-card">

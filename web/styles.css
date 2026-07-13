@@ -66,15 +66,22 @@ main { width: min(1500px, 100%); margin: auto; padding: 30px clamp(14px, 3vw, 48
   font: inherit;
 }
 
+.truck-list,
 .camera-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: clamp(10px, 1.5vw, 20px);
 }
 
+.truck-card,
 .camera-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); transition: border-color .2s, transform .2s; }
+.truck-card:hover,
 .camera-card:hover { border-color: #4c6578; transform: translateY(-2px); }
+.truck-open,
 .camera-open { width: 100%; padding: 0; border: 0; color: inherit; text-align: left; background: transparent; cursor: pointer; }
+.truck-open { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 112px; padding: 20px; }
+.truck-id { margin-bottom: 5px; color: var(--accent); font-size: .78rem; font-weight: 900; letter-spacing: .16em; }
+.truck-plate { font-size: 1.15rem; }
 .video-frame { position: relative; aspect-ratio: 16/9; overflow: hidden; background: #030506; }
 .video-frame video { width: 100%; height: 100%; object-fit: cover; }
 .video-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #65717c; font-size: .85rem; background: linear-gradient(135deg, #0d1319, #070a0d); }
@@ -114,7 +121,7 @@ main { width: min(1500px, 100%); margin: auto; padding: 30px clamp(14px, 3vw, 48
 .recording-item { padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); text-align: left; background: #0c1218; cursor: pointer; }
 .recording-item small { display: block; margin-top: 3px; color: var(--muted); }
 
-@media (max-width: 900px) { .camera-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .truck-list, .camera-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 580px) {
   .topbar { min-height: 74px; padding: 15px; }
   .eyebrow { display: none; }
@@ -123,7 +130,7 @@ main { width: min(1500px, 100%); margin: auto; padding: 30px clamp(14px, 3vw, 48
   .section-heading { align-items: stretch; flex-direction: column; }
   .toolbar { justify-content: stretch; }
   .truck-picker, .truck-picker select, .toolbar .ghost-button { width: 100%; }
-  .camera-grid { grid-template-columns: 1fr; }
+  .truck-list, .camera-grid { grid-template-columns: 1fr; }
   .viewer-dialog { width: 100vw; height: 100dvh; max-height: none; border: 0; border-radius: 0; }
   .viewer-shell { max-height: none; height: 100%; }
   .viewer-stage { min-height: 0; }

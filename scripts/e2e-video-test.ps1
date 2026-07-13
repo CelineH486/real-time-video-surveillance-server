@@ -1,6 +1,7 @@
 param(
     [string]$VideoDirectory = (Join-Path $PSScriptRoot "..\testdata\videos"),
-    [int]$LoopCount = 3
+    [int]$LoopCount = 3,
+    [switch]$Infinite
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,10 +21,11 @@ function Start-Publisher {
     } else {
         @("-b:v", "2500k", "-maxrate", "3000k", "-bufsize", "5000k", "-g", "60")
     }
+    $streamLoop = if ($Infinite) { -1 } else { $LoopCount - 1 }
 
     $arguments = @(
         "-hide_banner", "-loglevel", "error", "-nostdin",
-        "-stream_loop", ($LoopCount - 1), "-re", "-i", ('"' + $VideoPath + '"'),
+        "-stream_loop", $streamLoop, "-re", "-i", ('"' + $VideoPath + '"'),
         "-map", "0:v:0", "-an",
         "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
         "-pix_fmt", "yuv420p"

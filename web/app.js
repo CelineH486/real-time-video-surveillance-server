@@ -1,10 +1,20 @@
-let truckId = new URLSearchParams(location.search).get("truckId") || "truck001";
+const params = new URLSearchParams(location.search);
+let truckId = params.get("truckId") || "";
+let trucksCache = [];
 const cards = new Map();
 let selectedCamera = null;
 let mainPlayer = null;
 let refreshTimer = null;
+
+const isDevelopmentHost =
+  location.hostname === "localhost" ||
+  location.hostname === "127.0.0.1" ||
+  /^192\.168\.\d{1,3}\.\d{1,3}$/.test(location.hostname) ||
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(location.hostname) ||
+  /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(location.hostname);
+
 const apiToken = localStorage.getItem("surveillanceApiToken") ||
-  (location.hostname === "localhost" || location.hostname === "127.0.0.1" ? "dev-user-token" : "");
+  (isDevelopmentHost ? "dev-user-token" : "");
 
 function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -23,6 +33,7 @@ class WHEPPlayer {
 
   async start(url, token) {
     await this.close();
+    url = publicStreamUrl(url);
     this.token = token;
     this.pc = new RTCPeerConnection();
     this.pc.addTransceiver("video", { direction: "recvonly" });
@@ -75,9 +86,22 @@ class WHEPPlayer {
   }
 }
 
+function publicStreamUrl(url) {
+  const parsed = new URL(url, location.href);
+  if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+    return `${location.origin}${parsed.pathname}`;
+  }
+  return parsed.href;
+}
+
+const truckView = document.getElementById("truckView");
+const cameraView = document.getElementById("cameraView");
+const truckList = document.getElementById("truckList");
+const truckTemplate = document.getElementById("truckCardTemplate");
 const grid = document.getElementById("cameraGrid");
-const template = document.getElementById("cameraCardTemplate");
+const cameraTemplate = document.getElementById("cameraCardTemplate");
 const notice = document.getElementById("notice");
+const truckNotice = document.getElementById("truckNotice");
 const summary = document.querySelector(".summary");
 const summaryText = document.getElementById("summaryText");
 const truckLabel = document.getElementById("truckLabel");
@@ -87,15 +111,131 @@ const mainVideo = document.getElementById("mainVideo");
 const viewerState = document.getElementById("viewerState");
 const recordingList = document.getElementById("recordingList");
 
+document.getElementById("reloadTrucksButton").addEventListener("click", loadTruckSelection);
+document.getElementById("backToTrucksButton").addEventListener("click", showTruckSelection);
 document.getElementById("refreshButton").addEventListener("click", () => refreshCameras(true));
 document.getElementById("closeViewer").addEventListener("click", closeViewer);
 document.getElementById("liveButton").addEventListener("click", startMainStream);
 document.getElementById("historyButton").addEventListener("click", loadRecordings);
-truckSelect.addEventListener("change", () => switchTruck(truckSelect.value));
+truckSelect.addEventListener("change", () => enterCameraGrid(truckSelect.value, true));
 dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeViewer(); });
+window.addEventListener("popstate", () => {
+  const nextTruckId = new URLSearchParams(location.search).get("truckId") || "";
+  if (nextTruckId) enterCameraGrid(nextTruckId, false);
+  else showTruckSelection(false);
+});
+
+function setSummary(text, connected = false) {
+  summaryText.textContent = text;
+  summary.classList.toggle("connected", connected);
+}
+
+function showNotice(element, message) {
+  element.textContent = message;
+  element.hidden = false;
+}
+
+function hideNotice(element) {
+  element.hidden = true;
+}
+
+function statusLabel(status) {
+  return status === "online" ? "在線" : "離線";
+}
+
+function stopRefreshTimer() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+}
+
+function startRefreshTimer() {
+  stopRefreshTimer();
+  refreshTimer = setInterval(refreshCameras, 5000);
+}
+
+async function loadTrucks() {
+  const response = await apiFetch("/api/trucks", { cache: "no-store" });
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  trucksCache = await response.json();
+  return trucksCache;
+}
+
+function renderTruckSelect(trucks) {
+  truckSelect.replaceChildren();
+  for (const truck of trucks) {
+    const option = document.createElement("option");
+    option.value = truck.truckId;
+    option.textContent = `${truck.truckId.toUpperCase()} · ${truck.plateNo} · ${statusLabel(truck.status)}`;
+    truckSelect.appendChild(option);
+  }
+  truckSelect.value = truckId;
+}
+
+function renderTruckCards(trucks) {
+  truckList.replaceChildren();
+  for (const truck of trucks) {
+    const element = truckTemplate.content.firstElementChild.cloneNode(true);
+    element.querySelector(".truck-id").textContent = truck.truckId.toUpperCase();
+    element.querySelector(".truck-plate").textContent = truck.plateNo;
+    const badge = element.querySelector(".status-badge");
+    badge.textContent = statusLabel(truck.status);
+    badge.className = `status-badge ${truck.status}`;
+    element.querySelector(".truck-open").addEventListener("click", () => enterCameraGrid(truck.truckId, true));
+    truckList.appendChild(element);
+  }
+}
+
+async function loadTruckSelection() {
+  try {
+    const trucks = await loadTrucks();
+    hideNotice(truckNotice);
+    renderTruckCards(trucks);
+    setSummary(`${trucks.length} 台車機可選擇`, true);
+  } catch (error) {
+    showNotice(truckNotice, `讀取車機失敗：${error.message}`);
+    setSummary("連線異常，請稍後再試");
+  }
+}
+
+async function showTruckSelection(updateHistory = true) {
+  truckId = "";
+  stopRefreshTimer();
+  await closeViewerIfOpen();
+  await clearCameraGrid();
+  cameraView.hidden = true;
+  truckView.hidden = false;
+  if (updateHistory) history.pushState(null, "", location.pathname);
+  await loadTruckSelection();
+}
+
+async function enterCameraGrid(nextTruckId, updateHistory = true) {
+  if (!nextTruckId) return showTruckSelection(updateHistory);
+  const changedTruck = nextTruckId !== truckId;
+  truckId = nextTruckId;
+  if (updateHistory) history.pushState(null, "", `?truckId=${encodeURIComponent(truckId)}`);
+
+  truckView.hidden = true;
+  cameraView.hidden = false;
+  updateTruckLabel();
+
+  try {
+    const trucks = trucksCache.length ? trucksCache : await loadTrucks();
+    renderTruckSelect(trucks);
+  } catch {
+    truckSelect.replaceChildren();
+  }
+
+  if (changedTruck) {
+    await closeViewerIfOpen();
+    await clearCameraGrid();
+  }
+
+  await refreshCameras(true);
+  startRefreshTimer();
+}
 
 function createCard(camera) {
-  const element = template.content.firstElementChild.cloneNode(true);
+  const element = cameraTemplate.content.firstElementChild.cloneNode(true);
   const video = element.querySelector("video");
   const frame = element.querySelector(".video-frame");
   element.querySelector(".camera-id").textContent = camera.cameraId.toUpperCase();
@@ -105,40 +245,6 @@ function createCard(camera) {
   const card = { element, video, frame, player: new WHEPPlayer(video, state => frame.classList.toggle("playing", state === "playing")), camera };
   cards.set(camera.cameraId, card);
   return card;
-}
-
-async function loadTrucks() {
-  try {
-    const response = await apiFetch("/api/trucks", { cache: "no-store" });
-    if (!response.ok) throw new Error(`API ${response.status}`);
-    const trucks = await response.json();
-    truckSelect.replaceChildren();
-
-    for (const truck of trucks) {
-      const option = document.createElement("option");
-      option.value = truck.truckId;
-      option.textContent = `${truck.truckId.toUpperCase()} · ${truck.plateNo} · ${truck.status === "online" ? "在線" : "離線"}`;
-      truckSelect.appendChild(option);
-    }
-
-    if (trucks.length && !trucks.some(truck => truck.truckId === truckId)) {
-      truckId = trucks[0].truckId;
-    }
-    truckSelect.value = truckId;
-    updateTruckLabel();
-  } catch (error) {
-    showNotice(`讀取車機清單失敗：${error.message}`);
-  }
-}
-
-async function switchTruck(nextTruckId) {
-  if (!nextTruckId || nextTruckId === truckId) return;
-  truckId = nextTruckId;
-  history.replaceState(null, "", `?truckId=${encodeURIComponent(truckId)}`);
-  await closeViewerIfOpen();
-  await clearCameraGrid();
-  updateTruckLabel();
-  await refreshCameras(true);
 }
 
 function updateTruckLabel() {
@@ -151,26 +257,23 @@ async function clearCameraGrid() {
   grid.replaceChildren();
 }
 
-function showNotice(message) {
-  notice.textContent = message;
-  notice.hidden = false;
-}
-
 async function refreshCameras(forceRestart = false) {
+  if (!truckId) return;
   try {
     const response = await apiFetch(`/api/trucks/${encodeURIComponent(truckId)}/cameras`, { cache: "no-store" });
     if (!response.ok) throw new Error(`API ${response.status}`);
     const cameras = await response.json();
-    notice.hidden = true;
-    summary.classList.add("connected");
+    hideNotice(notice);
     const onlineCount = cameras.filter(camera => camera.status === "online").length;
-    summaryText.textContent = `${onlineCount} / ${cameras.length} 支攝影機在線`;
+    setSummary(`${onlineCount} / ${cameras.length} 支攝影機在線`, true);
 
+    const seen = new Set();
     for (const camera of cameras) {
+      seen.add(camera.cameraId);
       const card = cards.get(camera.cameraId) || createCard(camera);
       card.camera = camera;
       const badge = card.element.querySelector(".status-badge");
-      badge.textContent = camera.status === "online" ? "在線" : "離線";
+      badge.textContent = statusLabel(camera.status);
       badge.className = `status-badge ${camera.status}`;
       if (!dialog.open && camera.status === "online" && (forceRestart || !card.frame.classList.contains("playing"))) {
         card.player.start(camera.subUrl, camera.subToken).catch(() => card.frame.classList.remove("playing"));
@@ -180,10 +283,17 @@ async function refreshCameras(forceRestart = false) {
         card.frame.classList.remove("playing");
       }
     }
+
+    for (const [cameraId, card] of cards) {
+      if (!seen.has(cameraId)) {
+        await card.player.close();
+        card.element.remove();
+        cards.delete(cameraId);
+      }
+    }
   } catch (error) {
-    showNotice(`讀取攝影機失敗：${error.message}`);
-    summary.classList.remove("connected");
-    summaryText.textContent = "連線異常，請稍後再試";
+    showNotice(notice, `讀取攝影機失敗：${error.message}`);
+    setSummary("連線異常，請稍後再試");
   }
 }
 
@@ -204,7 +314,7 @@ async function startMainStream() {
   mainVideo.pause();
   mainVideo.removeAttribute("src");
   mainVideo.load();
-  viewerState.textContent = "等待載入單支攝影機即時影像";
+  viewerState.textContent = "準備載入即時影像";
   viewerState.classList.remove("ready");
   recordingList.hidden = true;
   try {
@@ -214,14 +324,14 @@ async function startMainStream() {
     mainPlayer ||= new WHEPPlayer(mainVideo, state => viewerState.classList.toggle("ready", state === "playing"));
     await mainPlayer.start(stream.url, stream.accessToken);
   } catch (error) {
-    viewerState.textContent = `無法播放即時畫面：${error.message}`;
+    viewerState.textContent = `即時影像載入失敗：${error.message}`;
   }
 }
 
 async function loadRecordings() {
   if (!selectedCamera) return;
   await mainPlayer?.close();
-  viewerState.textContent = "正在讀取歷史影像";
+  viewerState.textContent = "讀取歷史錄影";
   viewerState.classList.remove("ready");
   try {
     const response = await apiFetch(`/api/trucks/${encodeURIComponent(truckId)}/recordings?cameraId=${encodeURIComponent(selectedCamera.cameraId)}`);
@@ -235,11 +345,11 @@ async function loadRecordings() {
       button.addEventListener("click", () => playRecording(recording.url));
       recordingList.appendChild(button);
     }
-    if (!recordings.length) recordingList.textContent = "目前沒有歷史影像資料";
+    if (!recordings.length) recordingList.textContent = "尚無歷史錄影";
     recordingList.hidden = false;
-    viewerState.textContent = "請選擇一段歷史影像";
+    viewerState.textContent = "選擇一段歷史錄影";
   } catch (error) {
-    viewerState.textContent = `讀取歷史影像失敗：${error.message}`;
+    viewerState.textContent = `讀取歷史錄影失敗：${error.message}`;
   }
 }
 
@@ -262,18 +372,17 @@ async function closeViewer(restartGrid = true) {
   mainVideo.load();
   selectedCamera = null;
   if (dialog.open) dialog.close();
-  if (restartGrid) refreshCameras(true);
+  if (restartGrid && truckId) refreshCameras(true);
 }
 
 async function init() {
-  await loadTrucks();
-  await refreshCameras();
-  refreshTimer = setInterval(refreshCameras, 5000);
+  if (truckId) await enterCameraGrid(truckId, false);
+  else await showTruckSelection(false);
 }
 
 init();
 window.addEventListener("beforeunload", () => {
-  clearInterval(refreshTimer);
+  stopRefreshTimer();
   mainPlayer?.close();
   for (const card of cards.values()) card.player.close();
 });

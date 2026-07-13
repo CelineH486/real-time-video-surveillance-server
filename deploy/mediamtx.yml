@@ -13,6 +13,8 @@ webrtc: true
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 webrtcLocalTCPAddress: :8189
+# For LAN/mobile WebRTC testing, set this to the host machine's Wi-Fi IP.
+# Example: webrtcAdditionalHosts: [192.168.1.10]
 webrtcAllowOrigins: ["*"]
 
 # MediaMTX asks the Go server before accepting a publisher or viewer.
@@ -34,14 +36,9 @@ pathDefaults:
   record: false
 
 paths:
-  # Record only high-quality streams. Overview sub-streams remain live-only.
+  # Local HTTPS/dashboard tests should not create recording files.
   "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/main$":
-    record: true
-    recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
-    recordFormat: fmp4
-    recordPartDuration: 1s
-    recordSegmentDuration: 5m
-    recordDeleteAfter: 0s
+    record: false
 
   "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/sub$":
     record: false
