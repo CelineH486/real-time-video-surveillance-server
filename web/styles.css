@@ -25,6 +25,18 @@ body {
 
 button { font: inherit; }
 
+.login-view { min-height: 100vh; padding: 24px; place-items: center; }
+.login-view:not([hidden]) { display: grid; }
+.login-card { width: min(420px, 100%); padding: 32px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 24px 70px rgba(0, 0, 0, .35); }
+.login-card h1 { margin-bottom: 10px; }
+.login-intro, .password-hint { color: var(--muted); }
+.login-intro { margin-bottom: 24px; }
+.login-card label { display: grid; gap: 7px; margin-top: 16px; color: var(--muted); font-size: .82rem; font-weight: 700; }
+.login-card input { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: #0c1218; font: inherit; }
+.login-card input:focus { border-color: var(--accent); outline: 2px solid rgba(53, 230, 165, .15); }
+.password-hint { margin: 8px 0 18px; font-size: .76rem; }
+.login-card .primary-button { width: 100%; }
+
 .topbar {
   display: flex;
   align-items: center;

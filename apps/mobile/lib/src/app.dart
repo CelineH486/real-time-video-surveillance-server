@@ -2,21 +2,78 @@ import 'package:flutter/material.dart';
 
 import 'screens/camera_grid_screen.dart';
 import 'screens/camera_live_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/truck_select_screen.dart';
 import 'services/api_client.dart';
+import 'services/session_store.dart';
 
-class SurveillanceApp extends StatelessWidget {
-  const SurveillanceApp({super.key});
+class SurveillanceApp extends StatefulWidget {
+  const SurveillanceApp({super.key, this.sessionStore});
+
+  final SessionStore? sessionStore;
+
+  @override
+  State<SurveillanceApp> createState() => _SurveillanceAppState();
+}
+
+class _SurveillanceAppState extends State<SurveillanceApp> {
+  late final SessionStore _sessionStore;
+  late final ApiClient _apiClient;
+  bool _initializing = true;
+  bool _authenticated = false;
+  String _lastEmail = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _sessionStore = widget.sessionStore ?? const SecureSessionStore();
+    _apiClient = ApiClient(onUnauthorized: _expireSession);
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    final token = await _sessionStore.readToken();
+    if (token != null && token.isNotEmpty) {
+      _apiClient.apiToken = token;
+      _authenticated = true;
+    }
+    if (mounted) setState(() => _initializing = false);
+  }
+
+  Future<void> _login(String email, String password) async {
+    final token = await _apiClient.login(email: email, password: password);
+    await _sessionStore.writeToken(token);
+    if (mounted) {
+      setState(() {
+        _lastEmail = email;
+        _authenticated = true;
+      });
+    }
+  }
+
+  Future<void> _logout() async {
+    try {
+      await _apiClient.logout();
+    } finally {
+      await _clearSession();
+    }
+  }
+
+  void _expireSession() {
+    _clearSession();
+  }
+
+  Future<void> _clearSession() async {
+    _apiClient.apiToken = '';
+    await _sessionStore.deleteToken();
+    if (mounted) setState(() => _authenticated = false);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final apiClient = ApiClient();
-
     return MaterialApp(
       title: '即時影像監控',
       debugShowCheckedModeBanner: false,
-      initialRoute: '/trucks',
-      onGenerateRoute: (settings) => _route(settings, apiClient),
       theme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
@@ -31,38 +88,36 @@ class SurveillanceApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF090D12),
           foregroundColor: Colors.white,
-          centerTitle: false,
         ),
         useMaterial3: true,
       ),
+      home: _initializing
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : _authenticated
+          ? TruckSelectScreen(apiClient: _apiClient, onLogout: _logout)
+          : LoginScreen(onLogin: _login, initialEmail: _lastEmail),
+      onGenerateRoute: _authenticated ? _route : null,
     );
   }
 
-  Route<dynamic> _route(RouteSettings settings, ApiClient apiClient) {
-    final uri = Uri.parse(settings.name ?? '/trucks');
+  Route<dynamic> _route(RouteSettings settings) {
+    final uri = Uri.parse(settings.name ?? '/');
     final segments = uri.pathSegments;
+    Widget page = TruckSelectScreen(apiClient: _apiClient, onLogout: _logout);
 
-    Widget page = TruckSelectScreen(apiClient: apiClient);
     if (segments.length == 3 &&
         segments[0] == 'trucks' &&
         segments[2] == 'cameras') {
-      page = CameraGridScreen(
-        apiClient: apiClient,
-        truckId: segments[1],
-      );
+      page = CameraGridScreen(apiClient: _apiClient, truckId: segments[1]);
     } else if (segments.length == 4 &&
         segments[0] == 'trucks' &&
         segments[2] == 'cameras') {
       page = CameraLiveScreen(
-        apiClient: apiClient,
+        apiClient: _apiClient,
         truckId: segments[1],
         cameraId: segments[3],
       );
     }
-
-    return MaterialPageRoute(
-      settings: settings,
-      builder: (_) => page,
-    );
+    return MaterialPageRoute(settings: settings, builder: (_) => page);
   }
 }

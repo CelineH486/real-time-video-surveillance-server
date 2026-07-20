@@ -13,8 +13,7 @@ webrtc: true
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 webrtcLocalTCPAddress: :8189
-# For LAN/mobile WebRTC testing, set this to the host machine's Wi-Fi IP.
-# Example: webrtcAdditionalHosts: [192.168.1.10]
+webrtcAdditionalHosts: [192.168.31.241]
 webrtcAllowOrigins: ["*"]
 
 # MediaMTX asks the Go server before accepting a publisher or viewer.

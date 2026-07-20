@@ -62,8 +62,8 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
               final columns = constraints.maxWidth >= 900
                   ? 3
                   : constraints.maxWidth >= 560
-                      ? 2
-                      : 1;
+                  ? 2
+                  : 1;
 
               return GridView.builder(
                 padding: const EdgeInsets.all(16),
@@ -102,7 +102,9 @@ class _CameraTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = camera.isOnline ? const Color(0xFF35E6A5) : Colors.redAccent;
+    final statusColor = camera.isOnline
+        ? const Color(0xFF35E6A5)
+        : Colors.redAccent;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -127,7 +129,11 @@ class _CameraTile extends StatelessWidget {
                       )
                     else
                       const Center(
-                        child: Icon(Icons.videocam, size: 48, color: Colors.white30),
+                        child: Icon(
+                          Icons.videocam,
+                          size: 48,
+                          color: Colors.white30,
+                        ),
                       ),
                     Positioned(
                       left: 10,
@@ -138,7 +144,10 @@ class _CameraTile extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           child: Text('LIVE', style: TextStyle(fontSize: 12)),
                         ),
                       ),
@@ -157,7 +166,10 @@ class _CameraTile extends StatelessWidget {
                       children: [
                         Text(camera.cameraId.toUpperCase()),
                         const SizedBox(height: 4),
-                        Text(camera.name, style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          camera.name,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                       ],
                     ),
                   ),

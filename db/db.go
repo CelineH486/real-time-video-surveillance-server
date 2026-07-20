@@ -19,6 +19,11 @@ type AuthenticatedUser struct {
 	DisplayName string
 }
 
+type PasswordUser struct {
+	AuthenticatedUser
+	PasswordHash string
+}
+
 func Connect() (*sql.DB, error) {
 
 	connStr := os.Getenv("DATABASE_URL")
@@ -270,6 +275,17 @@ func MarkStaleCamerasOffline(dbConn *sql.DB, timeout string) (int64, error) {
 	return result.RowsAffected()
 }
 
+func RefreshTruckStatusesFromCameras(dbConn *sql.DB) error {
+	_, err := dbConn.Exec(`
+		UPDATE trucks t
+		SET status = CASE WHEN EXISTS (
+			SELECT 1 FROM cameras c
+			WHERE c.truck_id = t.truck_id AND c.status = 'online'
+		) THEN 'online' ELSE 'offline' END
+	`)
+	return err
+}
+
 func CameraExists(dbConn *sql.DB, truckID string, cameraID string) (bool, error) {
 	var exists bool
 	err := dbConn.QueryRow(`
@@ -298,6 +314,35 @@ func UserByAPIToken(dbConn *sql.DB, token string, now time.Time) (AuthenticatedU
 		return AuthenticatedUser{}, false, err
 	}
 	return user, true, nil
+}
+
+func UserByEmail(dbConn *sql.DB, email string) (PasswordUser, bool, error) {
+	var user PasswordUser
+	err := dbConn.QueryRow(`
+		SELECT user_id, email, display_name, password_hash
+		FROM users
+		WHERE LOWER(email) = LOWER($1) AND status = 'active' AND password_hash IS NOT NULL
+	`, email).Scan(&user.UserID, &user.Email, &user.DisplayName, &user.PasswordHash)
+	if err == sql.ErrNoRows {
+		return PasswordUser{}, false, nil
+	}
+	if err != nil {
+		return PasswordUser{}, false, err
+	}
+	return user, true, nil
+}
+
+func CreateAPIToken(dbConn *sql.DB, userID, token, label string, expiresAt time.Time) error {
+	_, err := dbConn.Exec(`
+		INSERT INTO user_api_tokens (token_hash, user_id, label, expires_at)
+		VALUES ($1, $2, $3, $4)
+	`, APITokenHash(token), userID, label, expiresAt)
+	return err
+}
+
+func DeleteAPIToken(dbConn *sql.DB, token string) error {
+	_, err := dbConn.Exec(`DELETE FROM user_api_tokens WHERE token_hash = $1`, APITokenHash(token))
+	return err
 }
 
 func UserCanAccessTruck(dbConn *sql.DB, userID string, truckID string) (bool, error) {

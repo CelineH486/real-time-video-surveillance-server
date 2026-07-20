@@ -19,7 +19,8 @@ services:
       - ./db/migrations/001_streaming.sql:/docker-entrypoint-initdb.d/001_streaming.sql:ro
       - ./db/migrations/002_composite_camera_key.sql:/docker-entrypoint-initdb.d/002_composite_camera_key.sql:ro
       - ./db/migrations/003_user_authorization.sql:/docker-entrypoint-initdb.d/003_user_authorization.sql:ro
-      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/004_dev_seed.sql:ro
+      - ./db/migrations/004_password_login.sql:/docker-entrypoint-initdb.d/004_password_login.sql:ro
+      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/005_dev_seed.sql:ro
 
   api:
     build: .
@@ -59,6 +60,19 @@ services:
     volumes:
       - ./deploy/mediamtx.yml:/mediamtx.yml:ro
       - ./recordings:/recordings
+
+  test-publisher:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.publisher
+    restart: unless-stopped
+    depends_on:
+      - api
+      - mediamtx
+    environment:
+      STREAM_PUBLISH_PASSWORD: local-development-publish-password
+    volumes:
+      - ./testdata/videos:/videos:ro
 
 volumes:
   postgres-data:

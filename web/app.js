@@ -6,20 +6,64 @@ let selectedCamera = null;
 let mainPlayer = null;
 let refreshTimer = null;
 
-const isDevelopmentHost =
-  location.hostname === "localhost" ||
-  location.hostname === "127.0.0.1" ||
-  /^192\.168\.\d{1,3}\.\d{1,3}$/.test(location.hostname) ||
-  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(location.hostname) ||
-  /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(location.hostname);
+let apiToken = localStorage.getItem("surveillanceApiToken") || "";
 
-const apiToken = localStorage.getItem("surveillanceApiToken") ||
-  (isDevelopmentHost ? "dev-user-token" : "");
-
-function apiFetch(url, options = {}) {
+async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (apiToken) headers.set("Authorization", `Bearer ${apiToken}`);
-  return fetch(url, { ...options, headers });
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    apiToken = "";
+    localStorage.removeItem("surveillanceApiToken");
+    showLogin("登入已過期，請重新登入。");
+  }
+  return response;
+}
+
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$/;
+
+function showLogin(message = "") {
+  document.getElementById("loginView").hidden = false;
+  document.querySelector(".topbar").hidden = true;
+  document.querySelector("main").hidden = true;
+  document.getElementById("loginPassword").value = "";
+  const notice = document.getElementById("loginNotice");
+  notice.textContent = message;
+  notice.hidden = !message;
+}
+
+function showDashboard() {
+  document.getElementById("loginView").hidden = true;
+  document.querySelector(".topbar").hidden = false;
+  document.querySelector("main").hidden = false;
+}
+
+async function login(event) {
+  event.preventDefault();
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  if (!passwordPattern.test(password)) return showLogin("密碼至少 8 碼，且需包含英文大寫、小寫及數字。");
+  const button = document.getElementById("loginButton");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    if (!response.ok) throw new Error(response.status === 401 ? "帳號或密碼錯誤。" : "登入失敗，請稍後再試。");
+    const session = await response.json();
+    apiToken = session.token;
+    localStorage.setItem("surveillanceApiToken", apiToken);
+    showDashboard();
+    await showTruckSelection(false);
+  } catch (error) { showLogin(error.message); }
+  finally { button.disabled = false; }
+}
+
+async function logout() {
+  if (apiToken) await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+  apiToken = "";
+  localStorage.removeItem("surveillanceApiToken");
+  await closeViewerIfOpen();
+  showLogin();
+  document.getElementById("loginPassword").focus();
 }
 
 class WHEPPlayer {
@@ -88,8 +132,14 @@ class WHEPPlayer {
 
 function publicStreamUrl(url) {
   const parsed = new URL(url, location.href);
+  if (location.protocol === "https:") {
+    parsed.protocol = "https:";
+    parsed.hostname = location.hostname;
+    parsed.port = "";
+    return parsed.href;
+  }
   if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-    return `${location.origin}${parsed.pathname}`;
+    parsed.hostname = location.hostname;
   }
   return parsed.href;
 }
@@ -117,6 +167,8 @@ document.getElementById("refreshButton").addEventListener("click", () => refresh
 document.getElementById("closeViewer").addEventListener("click", closeViewer);
 document.getElementById("liveButton").addEventListener("click", startMainStream);
 document.getElementById("historyButton").addEventListener("click", loadRecordings);
+document.getElementById("loginForm").addEventListener("submit", login);
+document.getElementById("logoutButton").addEventListener("click", logout);
 truckSelect.addEventListener("change", () => enterCameraGrid(truckSelect.value, true));
 dialog.addEventListener("cancel", (event) => { event.preventDefault(); closeViewer(); });
 window.addEventListener("popstate", () => {
@@ -376,6 +428,11 @@ async function closeViewer(restartGrid = true) {
 }
 
 async function init() {
+  if (!apiToken) {
+    showLogin();
+    return;
+  }
+  showDashboard();
   if (truckId) await enterCameraGrid(truckId, false);
   else await showTruckSelection(false);
 }

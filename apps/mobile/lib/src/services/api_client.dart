@@ -10,18 +10,49 @@ import '../models/truck.dart';
 class ApiClient {
   ApiClient({
     String baseUrl = ApiConfig.defaultBaseUrl,
-    String apiToken = ApiConfig.defaultApiToken,
-  })  : baseUri = Uri.parse(baseUrl),
-        _apiToken = apiToken;
+    this._apiToken = '',
+    this.onUnauthorized,
+  }) : baseUri = Uri.parse(baseUrl);
 
   final Uri baseUri;
-  final String _apiToken;
+  String _apiToken;
+  final void Function()? onUnauthorized;
+
+  set apiToken(String value) => _apiToken = value;
+
+  Future<String> login({
+    required String email,
+    required String password,
+  }) async {
+    final response = await http.post(
+      _uri('/api/auth/login'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+    _ensureSuccess(response, notifyUnauthorized: false);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final token = body['token'] as String? ?? '';
+    if (token.isEmpty) {
+      throw const ApiException(statusCode: 500, message: '登入回應缺少 token');
+    }
+    _apiToken = token;
+    return token;
+  }
+
+  Future<void> logout() async {
+    if (_apiToken.isEmpty) return;
+    final response = await http.post(
+      _uri('/api/auth/logout'),
+      headers: _headers,
+    );
+    _apiToken = '';
+    if (response.statusCode != 204 && response.statusCode != 401) {
+      _ensureSuccess(response);
+    }
+  }
 
   Uri _uri(String path, [Map<String, String>? queryParameters]) {
-    return baseUri.replace(
-      path: path,
-      queryParameters: queryParameters,
-    );
+    return baseUri.replace(path: path, queryParameters: queryParameters);
   }
 
   Map<String, String> get _headers {
@@ -69,8 +100,14 @@ class ApiClient {
     );
   }
 
-  void _ensureSuccess(http.Response response) {
+  void _ensureSuccess(
+    http.Response response, {
+    bool notifyUnauthorized = true,
+  }) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401 && notifyUnauthorized) {
+        onUnauthorized?.call();
+      }
       throw ApiException(
         statusCode: response.statusCode,
         message: response.body.isEmpty ? response.reasonPhrase : response.body,

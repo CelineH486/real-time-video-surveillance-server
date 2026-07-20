@@ -1,6 +1,10 @@
-# mobile
+# Mobile surveillance app
 
-A new Flutter project.
+The app requires email/password authentication. Session tokens returned by
+`POST /api/auth/login` are kept in platform secure storage and removed after
+logout or any authenticated API response returns `401`.
+
+Development login: `dev@example.local` / `Dev12345`.
 
 ## Getting Started
 

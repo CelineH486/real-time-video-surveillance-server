@@ -82,7 +82,10 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Text(data.camera.name, style: Theme.of(context).textTheme.headlineSmall),
+              Text(
+                data.camera.name,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
               const SizedBox(height: 12),
               AspectRatio(
                 aspectRatio: 16 / 9,
@@ -106,7 +109,10 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
               _InfoRow(label: 'Quality', value: session.quality),
               _InfoRow(label: 'Protocol', value: session.protocol),
               _InfoRow(label: 'URL', value: session.url),
-              _InfoRow(label: 'Expires', value: session.expiresAt.toLocal().toString()),
+              _InfoRow(
+                label: 'Expires',
+                value: session.expiresAt.toLocal().toString(),
+              ),
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: _reload,

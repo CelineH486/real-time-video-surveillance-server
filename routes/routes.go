@@ -16,6 +16,7 @@ type Controllers struct {
 	Recordings *controllers.RecordingController
 	MediaMTX   *controllers.MediaMTXController
 	Auth       *services.AuthService
+	Sessions   *controllers.SessionController
 }
 
 func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
@@ -29,6 +30,8 @@ func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
 		http.Redirect(w, r, "/web/", http.StatusTemporaryRedirect)
 	})
 	mux.HandleFunc("GET /health", controllers.Health.Get)
+	mux.HandleFunc("POST /api/auth/login", controllers.Sessions.Login)
+	mux.HandleFunc("POST /api/auth/logout", controllers.Sessions.Logout)
 	mux.HandleFunc("POST /internal/mediamtx/auth", controllers.MediaMTX.Auth)
 	mux.HandleFunc("GET /api/cameras", controllers.Auth.Middleware(controllers.Cameras.List))
 	mux.HandleFunc("GET /api/trucks", controllers.Auth.Middleware(controllers.Trucks.List))

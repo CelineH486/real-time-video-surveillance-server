@@ -73,6 +73,9 @@ func (s *StatusService) MonitorOffline(timeout time.Duration) {
 		} else if count > 0 {
 			log.Printf("marked %d stale camera(s) offline", count)
 		}
+		if err := db.RefreshTruckStatusesFromCameras(s.database); err != nil {
+			log.Printf("refresh truck statuses: %v", err)
+		}
 	}
 }
 
@@ -102,6 +105,9 @@ func (s *StatusService) MonitorMediaMTX(baseURL string) {
 							log.Printf("sync camera %s stream status: %v", cameraID, err)
 						}
 					}
+				}
+				if err := db.RefreshTruckStatusesFromCameras(s.database); err != nil {
+					log.Printf("refresh truck statuses: %v", err)
 				}
 			}
 		}

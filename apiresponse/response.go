@@ -39,6 +39,9 @@ const (
 	CodeDatabaseUnavailable         = "database_unavailable"
 	CodeStreamAccessDenied          = "stream_access_denied"
 	CodeActionDenied                = "action_denied"
+	CodeInvalidLogin                = "invalid_login"
+	CodeInvalidPasswordFormat       = "invalid_password_format"
+	CodeLogoutUnavailable           = "logout_unavailable"
 )
 
 const (
@@ -69,6 +72,9 @@ const (
 	MessageMediaMTXCameraNotFound      = "No registered camera matches the requested stream path"
 	MessageStreamAccessDenied          = "Stream token is expired or does not match the requested path"
 	MessageActionDenied                = "MediaMTX action is not allowed by this API"
+	MessageInvalidLogin                = "Email or password is incorrect"
+	MessageInvalidPasswordFormat       = "Password must be 8-72 characters and include uppercase, lowercase, and a number"
+	MessageLogoutUnavailable           = "Unable to revoke the current session"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, value any) {

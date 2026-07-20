@@ -15,6 +15,11 @@ INSERT INTO users (user_id, email, display_name, status)
 VALUES ('dev-user', 'dev@example.local', 'Development User', 'active')
 ON CONFLICT (user_id) DO NOTHING;
 
+-- Development login: dev@example.local / Dev12345
+UPDATE users
+SET password_hash = crypt('Dev12345', gen_salt('bf', 12))
+WHERE user_id = 'dev-user' AND password_hash IS NULL;
+
 INSERT INTO user_trucks (user_id, truck_id, role)
 VALUES ('dev-user', 'truck001', 'viewer')
 ON CONFLICT (user_id, truck_id) DO NOTHING;

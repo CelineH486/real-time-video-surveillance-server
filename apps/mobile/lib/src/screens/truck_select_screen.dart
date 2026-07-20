@@ -4,9 +4,14 @@ import '../models/truck.dart';
 import '../services/api_client.dart';
 
 class TruckSelectScreen extends StatefulWidget {
-  const TruckSelectScreen({super.key, required this.apiClient});
+  const TruckSelectScreen({
+    super.key,
+    required this.apiClient,
+    required this.onLogout,
+  });
 
   final ApiClient apiClient;
+  final Future<void> Function() onLogout;
 
   @override
   State<TruckSelectScreen> createState() => _TruckSelectScreenState();
@@ -37,6 +42,11 @@ class _TruckSelectScreenState extends State<TruckSelectScreen> {
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
             tooltip: '重新整理',
+          ),
+          IconButton(
+            onPressed: widget.onLogout,
+            icon: const Icon(Icons.logout),
+            tooltip: '登出',
           ),
         ],
       ),
@@ -71,12 +81,14 @@ class _TruckSelectScreenState extends State<TruckSelectScreen> {
                     child: const Icon(Icons.local_shipping),
                   ),
                   title: Text(truck.truckId.toUpperCase()),
-                  subtitle: Text('${truck.plateNo} · ${_statusLabel(truck.status)}'),
+                  subtitle: Text(
+                    '${truck.plateNo} · ${_statusLabel(truck.status)}',
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
-                    Navigator.of(context).pushNamed(
-                      '/trucks/${truck.truckId}/cameras',
-                    );
+                    Navigator.of(
+                      context,
+                    ).pushNamed('/trucks/${truck.truckId}/cameras');
                   },
                 ),
               );
