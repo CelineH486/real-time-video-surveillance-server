@@ -22,12 +22,21 @@ type Controllers struct {
 func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("GET /web/", http.StripPrefix("/web/", http.FileServer(http.FS(webContent))))
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		page, err := fs.ReadFile(webContent, "index.html")
+		if err != nil {
+			http.Error(w, "Login page unavailable", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(page)
+	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		http.Redirect(w, r, "/web/", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 	})
 	mux.HandleFunc("GET /health", controllers.Health.Get)
 	mux.HandleFunc("POST /api/auth/login", controllers.Sessions.Login)

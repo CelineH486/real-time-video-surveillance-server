@@ -16,6 +16,10 @@ class _LoginScreenState extends State<LoginScreen> {
   static final _passwordPattern = RegExp(
     r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$',
   );
+  static final _emailPattern = RegExp(
+    r'^[^@\s]+@[^@\s]+\.com$',
+    caseSensitive: false,
+  );
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _emailController;
   final _passwordController = TextEditingController();
@@ -97,8 +101,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             border: OutlineInputBorder(),
                           ),
                           validator: (value) =>
-                              value == null || !value.contains('@')
-                              ? '請輸入有效的電子郵件'
+                              value == null ||
+                                  !_emailPattern.hasMatch(value.trim())
+                              ? '請輸入以 .com 結尾的電子郵件'
                               : null,
                         ),
                         const SizedBox(height: 16),

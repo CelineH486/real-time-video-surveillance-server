@@ -20,6 +20,7 @@ var (
 	passwordUpper = regexp.MustCompile(`[A-Z]`)
 	passwordLower = regexp.MustCompile(`[a-z]`)
 	passwordDigit = regexp.MustCompile(`[0-9]`)
+	emailPattern  = regexp.MustCompile(`(?i)^[^@\s]+@[^@\s]+\.com$`)
 )
 
 type SessionController struct{ database *sql.DB }
@@ -42,7 +43,7 @@ func (c *SessionController) Login(w http.ResponseWriter, r *http.Request) {
 	var request loginRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || strings.TrimSpace(request.Email) == "" {
+	if decoder.Decode(&request) != nil || !emailPattern.MatchString(strings.TrimSpace(request.Email)) {
 		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidLogin, apiresponse.MessageInvalidLogin)
 		return
 	}

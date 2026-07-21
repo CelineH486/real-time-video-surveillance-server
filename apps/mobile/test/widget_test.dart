@@ -34,10 +34,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byType(EditableText).first,
-      'dev@example.local',
-    );
+    await tester.enterText(find.byType(EditableText).first, 'dev@example.com');
     await tester.enterText(find.byType(EditableText).last, 'weak');
     await tester.tap(find.text('登入'));
     await tester.pump();
@@ -49,7 +46,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: LoginScreen(
-          initialEmail: 'dev@example.local',
+          initialEmail: 'dev@example.com',
           onLogin: (_, _) async {},
         ),
       ),
@@ -61,7 +58,7 @@ void main() {
     final passwordField = tester.widget<TextFormField>(
       find.byType(TextFormField).last,
     );
-    expect(emailField.controller?.text, 'dev@example.local');
+    expect(emailField.controller?.text, 'dev@example.com');
     expect(passwordField.controller?.text, isEmpty);
   });
 }

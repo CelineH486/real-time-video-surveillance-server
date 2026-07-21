@@ -12,21 +12,24 @@ async function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (apiToken) headers.set("Authorization", `Bearer ${apiToken}`);
   const response = await fetch(url, { ...options, headers });
-  if (response.status === 401) {
+  if (response.status === 401 && apiToken) {
     apiToken = "";
     localStorage.removeItem("surveillanceApiToken");
-    showLogin("登入已過期，請重新登入。");
+    showLogin("登入已過期，請重新登入。", true);
   }
   return response;
 }
 
 const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$/;
+const emailPattern = /^[^@\s]+@[^@\s]+\.com$/i;
 
-function showLogin(message = "") {
+function showLogin(message = "", clearPassword = false) {
+  stopRefreshTimer();
   document.getElementById("loginView").hidden = false;
   document.querySelector(".topbar").hidden = true;
   document.querySelector("main").hidden = true;
-  document.getElementById("loginPassword").value = "";
+  if (clearPassword) document.getElementById("loginPassword").value = "";
+  if (location.pathname !== "/login") history.replaceState(null, "", "/login");
   const notice = document.getElementById("loginNotice");
   notice.textContent = message;
   notice.hidden = !message;
@@ -36,12 +39,14 @@ function showDashboard() {
   document.getElementById("loginView").hidden = true;
   document.querySelector(".topbar").hidden = false;
   document.querySelector("main").hidden = false;
+  if (location.pathname === "/login") history.replaceState(null, "", "/web/");
 }
 
 async function login(event) {
   event.preventDefault();
   const email = document.getElementById("loginEmail").value.trim();
   const password = document.getElementById("loginPassword").value;
+  if (!emailPattern.test(email)) return showLogin("請輸入以 .com 結尾的電子郵件。");
   if (!passwordPattern.test(password)) return showLogin("密碼至少 8 碼，且需包含英文大寫、小寫及數字。");
   const button = document.getElementById("loginButton");
   button.disabled = true;
@@ -53,7 +58,7 @@ async function login(event) {
     localStorage.setItem("surveillanceApiToken", apiToken);
     showDashboard();
     await showTruckSelection(false);
-  } catch (error) { showLogin(error.message); }
+  } catch (error) { showLogin(error.message, true); }
   finally { button.disabled = false; }
 }
 
@@ -62,7 +67,7 @@ async function logout() {
   apiToken = "";
   localStorage.removeItem("surveillanceApiToken");
   await closeViewerIfOpen();
-  showLogin();
+  showLogin("", true);
   document.getElementById("loginPassword").focus();
 }
 
@@ -429,7 +434,7 @@ async function closeViewer(restartGrid = true) {
 
 async function init() {
   if (!apiToken) {
-    showLogin();
+    showLogin("", true);
     return;
   }
   showDashboard();

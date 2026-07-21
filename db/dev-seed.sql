@@ -12,10 +12,13 @@ FROM generate_series(1, 9) AS camera_number
 ON CONFLICT (truck_id, camera_id) DO NOTHING;
 
 INSERT INTO users (user_id, email, display_name, status)
-VALUES ('dev-user', 'dev@example.local', 'Development User', 'active')
+VALUES ('dev-user', 'dev@example.com', 'Development User', 'active')
 ON CONFLICT (user_id) DO NOTHING;
 
--- Development login: dev@example.local / Dev12345
+UPDATE users SET email = 'dev@example.com'
+WHERE user_id = 'dev-user' AND email = 'dev@example.local';
+
+-- Development login: dev@example.com / Dev12345
 UPDATE users
 SET password_hash = crypt('Dev12345', gen_salt('bf', 12))
 WHERE user_id = 'dev-user' AND password_hash IS NULL;

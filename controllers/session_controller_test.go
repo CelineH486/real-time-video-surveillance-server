@@ -17,3 +17,16 @@ func TestInvalidPassword(t *testing.T) {
 		}
 	}
 }
+
+func TestEmailMustUseDotComDomain(t *testing.T) {
+	for _, email := range []string{"user@example.com", "USER@COMPANY.COM"} {
+		if !emailPattern.MatchString(email) {
+			t.Fatalf("expected %q to be valid", email)
+		}
+	}
+	for _, email := range []string{"user@example.local", "user@example.org", "invalid"} {
+		if emailPattern.MatchString(email) {
+			t.Fatalf("expected %q to be invalid", email)
+		}
+	}
+}

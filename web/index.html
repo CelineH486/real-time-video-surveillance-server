@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>即時影像監控</title>
-  <link rel="stylesheet" href="styles.css">
-  <script defer src="app.js"></script>
+  <link rel="stylesheet" href="/web/styles.css">
+  <script defer src="/web/app.js"></script>
 </head>
 <body>
   <section id="loginView" class="login-view" hidden>
@@ -13,7 +13,7 @@
       <p class="eyebrow">REAL-TIME SURVEILLANCE</p>
       <h1>監控系統登入</h1>
       <p class="login-intro">請使用帳號密碼登入監控平台。</p>
-      <label><span>電子郵件</span><input id="loginEmail" name="email" type="email" autocomplete="username" required></label>
+      <label><span>電子郵件</span><input id="loginEmail" name="email" type="email" autocomplete="username" pattern="[^@\s]+@[^@\s]+\.com" title="請輸入 .com 結尾的電子郵件" required></label>
       <label><span>密碼</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="72" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{8,72}" required></label>
       <p class="password-hint">至少 8 碼，需包含英文大寫、小寫及數字。</p>
       <div id="loginNotice" class="notice" role="alert" hidden></div>
