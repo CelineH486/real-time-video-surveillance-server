@@ -28,7 +28,13 @@ The truck publishes RTSP. The streaming server exposes WebRTC to the responsive 
 
 ## Configuration
 
-Copy `.env.example` values into the process environment. `STREAM_PUBLIC_BASE_URL` is the browser-facing WebRTC endpoint of the streaming server. `STREAM_SIGNING_KEY` signs five-minute stream tokens and must be replaced in production. Configure the streaming server to validate the same token before exposing it publicly.
+Copy `.env.example` to `.env` before running Docker Compose:
+
+```bash
+cp .env.example .env
+```
+
+Update `.env` with the VM public IP or DNS name and replace every secret value. `API_PUBLIC_BASE_URL` is the browser-facing Go API endpoint, `STREAM_PUBLIC_BASE_URL` is the browser-facing MediaMTX WebRTC endpoint, and `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS` tells MediaMTX which public IP or DNS name WebRTC clients should use. `STREAM_SIGNING_KEY`, `STREAM_PUBLISH_PASSWORD`, and `POSTGRES_PASSWORD` must be replaced before exposing the service.
 
 Run `db/migrations/000_base.sql`, `db/migrations/001_streaming.sql`, and `db/migrations/002_composite_camera_key.sql` in order when installing against an existing PostgreSQL server. The Docker Compose development stack applies them automatically.
 
@@ -60,15 +66,19 @@ The server updates `last_seen_at` for each camera heartbeat. A camera without a 
 
 To start PostgreSQL, the Go API, and MediaMTX together:
 
-```powershell
+```bash
+cp .env.example .env
+# Edit .env before starting the stack.
 docker compose up -d --build
 ```
 
-Open the responsive monitoring dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer.
+On older Ubuntu packages, use `docker-compose up -d --build` instead of `docker compose up -d --build`.
+
+Open the responsive monitoring dashboard at the `API_PUBLIC_BASE_URL` configured in `.env`, for example `http://YOUR_VM_EXTERNAL_IP_OR_DNS:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer.
 
 The development database is seeded with `truck001` and `cam01` through `cam09`. These values are for local testing only.
 
-Open RTSP `8554/tcp`, WebRTC signaling `8889/tcp`, and WebRTC ICE `8189/tcp+udp` on the server firewall. For access across the internet, set MediaMTX `webrtcAdditionalHosts` to the server's public IP or DNS name.
+Open RTSP `8554/tcp`, WebRTC signaling `8889/tcp`, WebRTC ICE `8189/tcp+udp`, API `8080/tcp`, and truck status `5000/udp` on the server firewall. Do not open PostgreSQL `5432/tcp` or MediaMTX playback `9996/tcp` to the internet; the Compose stack keeps them internal. For access across the internet, set `MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS` in `.env` to the server's public IP or DNS name.
 
 MediaMTX calls `POST /internal/mediamtx/auth` for every publish, live-read, and playback request. Truck publishers use their `truckId` as the RTSP username and `STREAM_PUBLISH_PASSWORD` as the password. Web viewers use the five-minute token returned by the Go API.
 

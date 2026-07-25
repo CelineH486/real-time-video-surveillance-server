@@ -3,16 +3,14 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: surveillance
-      POSTGRES_USER: surveillance
-      POSTGRES_PASSWORD: local-development-only
+      POSTGRES_DB: ${POSTGRES_DB:-surveillance}
+      POSTGRES_USER: ${POSTGRES_USER:-surveillance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U surveillance -d surveillance"]
       interval: 3s
       timeout: 3s
       retries: 20
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/migrations/000_base.sql:/docker-entrypoint-initdb.d/000_base.sql:ro
@@ -27,17 +25,17 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: host=postgres port=5432 user=surveillance password=local-development-only dbname=surveillance sslmode=disable
-      UDP_ADDRESS: :5000
-      HTTP_ADDRESS: :8080
-      API_PUBLIC_BASE_URL: http://localhost:8080
-      STREAM_PUBLIC_BASE_URL: http://localhost:8889
+      DATABASE_URL: host=postgres port=5432 user=${POSTGRES_USER:-surveillance} password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env} dbname=${POSTGRES_DB:-surveillance} sslmode=disable
+      UDP_ADDRESS: ${UDP_ADDRESS:-:5000}
+      HTTP_ADDRESS: ${HTTP_ADDRESS:-:8080}
+      API_PUBLIC_BASE_URL: ${API_PUBLIC_BASE_URL:?set API_PUBLIC_BASE_URL in .env}
+      STREAM_PUBLIC_BASE_URL: ${STREAM_PUBLIC_BASE_URL:?set STREAM_PUBLIC_BASE_URL in .env}
       PLAYBACK_INTERNAL_BASE_URL: http://mediamtx:9996
       MEDIAMTX_API_URL: http://mediamtx:9997
-      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173,http://localhost:8080
-      STREAM_SIGNING_KEY: local-development-signing-key-change-in-production
-      STREAM_PUBLISH_PASSWORD: local-development-publish-password
-      CAMERA_OFFLINE_TIMEOUT: 15s
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS in .env}
+      STREAM_SIGNING_KEY: ${STREAM_SIGNING_KEY:?set STREAM_SIGNING_KEY in .env}
+      STREAM_PUBLISH_PASSWORD: ${STREAM_PUBLISH_PASSWORD:?set STREAM_PUBLISH_PASSWORD in .env}
+      CAMERA_OFFLINE_TIMEOUT: ${CAMERA_OFFLINE_TIMEOUT:-15s}
     ports:
       - "8080:8080/tcp"
       - "5000:5000/udp"
@@ -47,6 +45,8 @@ services:
     restart: unless-stopped
     environment:
       MTX_AUTHHTTPADDRESS: http://api:8080/internal/mediamtx/auth
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS:?set MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS in .env}
+      MTX_WEBRTCALLOWORIGINS: ${MEDIAMTX_WEBRTC_ALLOW_ORIGINS:-*}
     depends_on:
       - api
     ports:
@@ -54,7 +54,6 @@ services:
       - "8889:8889/tcp"
       - "8189:8189/tcp"
       - "8189:8189/udp"
-      - "9996:9996/tcp"
     volumes:
       - ./deploy/mediamtx.yml:/mediamtx.yml:ro
       - ./recordings:/recordings

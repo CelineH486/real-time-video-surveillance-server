@@ -13,6 +13,7 @@ webrtc: true
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 webrtcLocalTCPAddress: :8189
+# Set MTX_WEBRTCADDITIONALHOSTS from compose/.env to expose the VM public IP or DNS.
 webrtcAllowOrigins: ["*"]
 
 # MediaMTX asks the Go server before accepting a publisher or viewer.
