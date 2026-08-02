@@ -1,21 +1,28 @@
-# Mobile surveillance app
+# Shared Flutter surveillance application
 
-The app requires email/password authentication. Session tokens returned by
-`POST /api/auth/login` are kept in platform secure storage and removed after
-logout or any authenticated API response returns `401`.
+This Flutter/Dart application is the single UI implementation for Web and
+mobile-sized clients. It includes:
 
-Development login: `dev@example.com` / `Dev12345`.
+- email/password login and logout;
+- secure session and remembered-email storage;
+- responsive truck selection and camera grids;
+- WHEP live playback implemented with `flutter_webrtc`;
+- historical recording playback implemented with `video_player`.
 
-## Getting Started
+Run locally against the Go API:
 
-This project is a starting point for a Flutter application.
+```powershell
+flutter pub get
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
+```
 
-A few resources to get you started if this is your first Flutter project:
+Build the assets served by the Go application:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```powershell
+flutter build web --release --base-href /web/ --no-web-resources-cdn --no-wasm-dry-run
+Copy-Item -Path build/web/* -Destination ../../web -Recurse -Force
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The repository Dockerfile performs this Web build automatically and embeds the
+result in the Go binary. Generated files under the repository-level `web/`
+directory are ignored; only the Dart source is maintained.

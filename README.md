@@ -10,7 +10,8 @@ services/     streaming tokens, recordings, and status synchronization
 routes/       all HTTP route registration
 db/           PostgreSQL queries and migrations
 models/       shared data models
-web/          responsive monitoring dashboard
+apps/mobile/  shared Flutter/Dart application for Web and mobile
+web/          generated Flutter Web assets (not committed)
 truck/        truck-side FFmpeg publisher scripts
 main.go       dependency wiring and server startup only
 ```
@@ -24,7 +25,7 @@ truck001/cam01/main  high-quality single-camera view
 truck001/cam01/sub   low-bandwidth overview view
 ```
 
-The truck publishes RTSP. The streaming server exposes WebRTC to the responsive Web client. The overview requests nine `sub` streams; opening one camera requests its `main` stream.
+The truck publishes RTSP. MediaMTX exposes WebRTC/WHEP to the shared Flutter application. The responsive overview requests nine `sub` streams; opening one camera requests its `main` stream.
 
 ## Configuration
 
@@ -77,7 +78,18 @@ To start PostgreSQL, the Go API, and MediaMTX together:
 docker compose up -d --build
 ```
 
-Open the responsive monitoring dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer.
+Open the responsive Flutter dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer. The Docker build compiles `apps/mobile` for Web and embeds the generated assets in the Go server.
+
+For Flutter development without rebuilding the Go image:
+
+```powershell
+cd apps/mobile
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8080
+```
+
+The Web and mobile targets share the same Dart screens, API client, session
+storage, and WHEP player. There is no separate handwritten JavaScript
+dashboard to maintain.
 
 The development database is seeded with `truck001`, `cam01` through `cam09`, and a development viewer token. These values are for local testing only.
 

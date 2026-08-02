@@ -1,13 +1,15 @@
-package services
+package services_test
 
 import (
 	"strings"
 	"testing"
 	"time"
+
+	"real-time-video-surveillance-system/services"
 )
 
-func testStreamService() *StreamService {
-	return NewStreamService("http://localhost:8889", "test-signing-key", "test-publish-password")
+func testStreamService() *services.StreamService {
+	return services.NewStreamService("http://localhost:8889", "test-signing-key", "test-publish-password")
 }
 
 func TestSignAccessVariesByQuality(t *testing.T) {
@@ -55,11 +57,11 @@ func TestValidateAccessRejectsExpiredToken(t *testing.T) {
 }
 
 func TestStreamPathParts(t *testing.T) {
-	truckID, cameraID, quality, ok := StreamPathParts("truck001/cam08/sub")
+	truckID, cameraID, quality, ok := services.StreamPathParts("truck001/cam08/sub")
 	if !ok || truckID != "truck001" || cameraID != "cam08" || quality != "sub" {
 		t.Fatalf("unexpected stream path: %q %q %q %v", truckID, cameraID, quality, ok)
 	}
-	if _, _, _, ok := StreamPathParts("truck001/cam08/unknown"); ok {
+	if _, _, _, ok := services.StreamPathParts("truck001/cam08/unknown"); ok {
 		t.Fatal("unknown stream quality was accepted")
 	}
 }

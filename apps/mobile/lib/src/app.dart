@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'screens/camera_grid_screen.dart';
@@ -8,15 +10,17 @@ import 'services/api_client.dart';
 import 'services/session_store.dart';
 
 class SurveillanceApp extends StatefulWidget {
-  const SurveillanceApp({super.key, this.sessionStore});
+  const SurveillanceApp({super.key, this.sessionStore, this.apiClient});
 
   final SessionStore? sessionStore;
+  final ApiClient? apiClient;
 
   @override
   State<SurveillanceApp> createState() => _SurveillanceAppState();
 }
 
 class _SurveillanceAppState extends State<SurveillanceApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
   late final SessionStore _sessionStore;
   late final ApiClient _apiClient;
   bool _initializing = true;
@@ -27,12 +31,17 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
   void initState() {
     super.initState();
     _sessionStore = widget.sessionStore ?? const SecureSessionStore();
-    _apiClient = ApiClient(onUnauthorized: _expireSession);
-    _restoreSession();
+    _apiClient = widget.apiClient ?? ApiClient(onUnauthorized: _expireSession);
+    unawaited(_restoreSession());
   }
 
   Future<void> _restoreSession() async {
-    final token = await _sessionStore.readToken();
+    final values = await Future.wait([
+      _sessionStore.readToken(),
+      _sessionStore.readEmail(),
+    ]);
+    final token = values[0];
+    _lastEmail = values[1] ?? '';
     if (token != null && token.isNotEmpty) {
       _apiClient.apiToken = token;
       _authenticated = true;
@@ -42,7 +51,10 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
 
   Future<void> _login(String email, String password) async {
     final token = await _apiClient.login(email: email, password: password);
-    await _sessionStore.writeToken(token);
+    await Future.wait([
+      _sessionStore.writeToken(token),
+      _sessionStore.writeEmail(email),
+    ]);
     if (mounted) {
       setState(() {
         _lastEmail = email;
@@ -60,18 +72,21 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
   }
 
   void _expireSession() {
-    _clearSession();
+    unawaited(_clearSession());
   }
 
   Future<void> _clearSession() async {
     _apiClient.apiToken = '';
     await _sessionStore.deleteToken();
-    if (mounted) setState(() => _authenticated = false);
+    if (!mounted) return;
+    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    setState(() => _authenticated = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: '即時影像監控',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -79,6 +94,7 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF35E6A5),
           brightness: Brightness.dark,
+          surface: const Color(0xFF111820),
         ),
         scaffoldBackgroundColor: const Color(0xFF090D12),
         cardTheme: const CardThemeData(
@@ -88,6 +104,10 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF090D12),
           foregroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
         ),
         useMaterial3: true,
       ),
@@ -108,7 +128,11 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
     if (segments.length == 3 &&
         segments[0] == 'trucks' &&
         segments[2] == 'cameras') {
-      page = CameraGridScreen(apiClient: _apiClient, truckId: segments[1]);
+      page = CameraGridScreen(
+        apiClient: _apiClient,
+        truckId: segments[1],
+        onLogout: _logout,
+      );
     } else if (segments.length == 4 &&
         segments[0] == 'trucks' &&
         segments[2] == 'cameras') {
@@ -116,6 +140,7 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
         apiClient: _apiClient,
         truckId: segments[1],
         cameraId: segments[3],
+        onLogout: _logout,
       );
     }
     return MaterialPageRoute(settings: settings, builder: (_) => page);

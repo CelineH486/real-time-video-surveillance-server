@@ -21,15 +21,12 @@ type Controllers struct {
 
 func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /web", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/web/", http.StatusTemporaryRedirect)
+	})
 	mux.Handle("GET /web/", http.StripPrefix("/web/", http.FileServer(http.FS(webContent))))
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
-		page, err := fs.ReadFile(webContent, "index.html")
-		if err != nil {
-			http.Error(w, "Login page unavailable", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(page)
+		serveAppIndex(w, webContent)
 	})
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -50,4 +47,15 @@ func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
 	mux.HandleFunc("POST /api/trucks/{truckID}/cameras/{cameraID}/recordings/play", controllers.Auth.Middleware(controllers.Recordings.Play))
 	mux.HandleFunc("GET /api/trucks/{truckID}/cameras/{cameraID}/recordings/content", controllers.Recordings.Content)
 	return mux
+}
+
+func serveAppIndex(w http.ResponseWriter, webContent fs.FS) {
+	page, err := fs.ReadFile(webContent, "index.html")
+	if err != nil {
+		http.Error(w, "Web application unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(page)
 }

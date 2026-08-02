@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile/src/app.dart';
-import 'package:mobile/src/screens/login_screen.dart';
-import 'package:mobile/src/services/session_store.dart';
+import 'package:surveillance_app/src/app.dart';
+import 'package:surveillance_app/src/screens/login_screen.dart';
+import 'package:surveillance_app/src/services/session_store.dart';
 
 class MemorySessionStore implements SessionStore {
   String? token;
+  String? email;
 
   @override
   Future<void> deleteToken() async => token = null;
@@ -15,6 +16,12 @@ class MemorySessionStore implements SessionStore {
 
   @override
   Future<void> writeToken(String value) async => token = value;
+
+  @override
+  Future<String?> readEmail() async => email;
+
+  @override
+  Future<void> writeEmail(String value) async => email = value;
 }
 
 void main() {
@@ -39,7 +46,7 @@ void main() {
     await tester.tap(find.text('登入'));
     await tester.pump();
 
-    expect(find.text('至少 8 碼，需包含英文大小寫及數字'), findsOneWidget);
+    expect(find.text('至少 8 碼，需包含英文大寫、小寫及數字'), findsOneWidget);
   });
 
   testWidgets('登入頁可預填保留的電子郵件', (tester) async {

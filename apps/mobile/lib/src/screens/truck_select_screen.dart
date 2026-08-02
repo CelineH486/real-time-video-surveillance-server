@@ -27,26 +27,29 @@ class _TruckSelectScreenState extends State<TruckSelectScreen> {
   }
 
   void _reload() {
-    setState(() {
-      _trucks = widget.apiClient.getTrucks();
-    });
+    setState(() => _trucks = widget.apiClient.getTrucks());
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('選擇車機'),
+        toolbarHeight: 82,
+        title: const _BrandTitle(title: '選擇車機'),
         actions: [
           IconButton(
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
             tooltip: '重新整理',
           ),
-          IconButton(
-            onPressed: widget.onLogout,
-            icon: const Icon(Icons.logout),
-            tooltip: '登出',
+          const SizedBox(width: 4),
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: OutlinedButton.icon(
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout),
+              label: const Text('登出'),
+            ),
           ),
         ],
       ),
@@ -62,35 +65,73 @@ class _TruckSelectScreenState extends State<TruckSelectScreen> {
 
           final trucks = snapshot.data ?? const [];
           if (trucks.isEmpty) {
-            return _ErrorState(message: '目前沒有車機資料', onRetry: _reload);
+            return _ErrorState(message: '目前沒有可用的車機', onRetry: _reload);
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: trucks.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final truck = trucks[index];
-              return Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
-                  leading: CircleAvatar(
-                    backgroundColor: truck.status == 'online'
-                        ? const Color(0xFF35E6A5)
-                        : Colors.grey.shade700,
-                    child: const Icon(Icons.local_shipping),
-                  ),
-                  title: Text(truck.truckId.toUpperCase()),
-                  subtitle: Text(
-                    '${truck.plateNo} · ${_statusLabel(truck.status)}',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.of(
-                      context,
-                    ).pushNamed('/trucks/${truck.truckId}/cameras');
-                  },
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 1100
+                  ? 3
+                  : constraints.maxWidth >= 700
+                  ? 2
+                  : 1;
+              return GridView.builder(
+                padding: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth >= 700 ? 32 : 16,
+                  vertical: 24,
                 ),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  mainAxisExtent: 132,
+                ),
+                itemCount: trucks.length,
+                itemBuilder: (context, index) {
+                  final truck = trucks[index];
+                  final online = truck.status == 'online';
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => Navigator.of(
+                        context,
+                      ).pushNamed('/trucks/${truck.truckId}/cameras'),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    truck.truckId.toUpperCase(),
+                                    style: const TextStyle(
+                                      color: Color(0xFF35E6A5),
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    truck.plateNo,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleLarge,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _StatusChip(online: online),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.chevron_right),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               );
             },
           );
@@ -100,7 +141,48 @@ class _TruckSelectScreenState extends State<TruckSelectScreen> {
   }
 }
 
-String _statusLabel(String status) => status == 'online' ? '在線' : '離線';
+class _BrandTitle extends StatelessWidget {
+  const _BrandTitle({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'REAL-TIME SURVEILLANCE',
+          style: TextStyle(
+            color: Color(0xFF35E6A5),
+            fontSize: 10,
+            letterSpacing: 1.8,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        Text(title),
+      ],
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.online});
+
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = online ? const Color(0xFF35E6A5) : Colors.redAccent;
+    return Chip(
+      label: Text(online ? '在線' : '離線'),
+      side: BorderSide.none,
+      labelStyle: TextStyle(color: color, fontWeight: FontWeight.w700),
+      backgroundColor: color.withValues(alpha: .12),
+    );
+  }
+}
 
 class _ErrorState extends StatelessWidget {
   const _ErrorState({required this.message, required this.onRetry});

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/camera.dart';
@@ -9,10 +11,12 @@ class CameraGridScreen extends StatefulWidget {
     super.key,
     required this.apiClient,
     required this.truckId,
+    required this.onLogout,
   });
 
   final ApiClient apiClient;
   final String truckId;
+  final Future<void> Function() onLogout;
 
   @override
   State<CameraGridScreen> createState() => _CameraGridScreenState();
@@ -20,30 +24,61 @@ class CameraGridScreen extends StatefulWidget {
 
 class _CameraGridScreenState extends State<CameraGridScreen> {
   late Future<List<Camera>> _cameras;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _cameras = widget.apiClient.getCameras(widget.truckId);
+    _reload();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _reload(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void _reload() {
-    setState(() {
-      _cameras = widget.apiClient.getCameras(widget.truckId);
-    });
+    if (!mounted) return;
+    setState(() => _cameras = widget.apiClient.getCameras(widget.truckId));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.truckId.toUpperCase()),
+        toolbarHeight: 76,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.truckId.toUpperCase(),
+              style: const TextStyle(
+                color: Color(0xFF35E6A5),
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const Text('車機攝影機總覽'),
+          ],
+        ),
         actions: [
           IconButton(
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
             tooltip: '重新整理',
           ),
+          IconButton(
+            onPressed: widget.onLogout,
+            icon: const Icon(Icons.logout),
+            tooltip: '登出',
+          ),
+          const SizedBox(width: 12),
         ],
       ),
       body: FutureBuilder<List<Camera>>(
@@ -59,30 +94,27 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
           final cameras = snapshot.data ?? const [];
           return LayoutBuilder(
             builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 900
+              final columns = constraints.maxWidth >= 1000
                   ? 3
-                  : constraints.maxWidth >= 560
+                  : constraints.maxWidth >= 620
                   ? 2
                   : 1;
-
               return GridView.builder(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(constraints.maxWidth >= 620 ? 20 : 12),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 16 / 11,
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 16 / 11.8,
                 ),
                 itemCount: cameras.length,
                 itemBuilder: (context, index) {
                   final camera = cameras[index];
                   return _CameraTile(
                     camera: camera,
-                    onTap: () {
-                      Navigator.of(context).pushNamed(
-                        '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
-                      );
-                    },
+                    onTap: () => Navigator.of(context).pushNamed(
+                      '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
+                    ),
                   );
                 },
               );
@@ -114,57 +146,70 @@ class _CameraTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: Container(
-                color: Colors.black,
-                child: Stack(
-                  children: [
-                    if (camera.isOnline &&
-                        camera.subUrl != null &&
-                        camera.subToken != null)
-                      Positioned.fill(
-                        child: WhepVideoPlayer(
-                          url: camera.subUrl!,
-                          token: camera.subToken!,
-                        ),
-                      )
-                    else
-                      const Center(
-                        child: Icon(
-                          Icons.videocam,
-                          size: 48,
-                          color: Colors.white30,
-                        ),
-                      ),
-                    Positioned(
-                      left: 10,
-                      top: 10,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          child: Text('LIVE', style: TextStyle(fontSize: 12)),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (camera.isOnline &&
+                      camera.subUrl != null &&
+                      camera.subToken != null)
+                    WhepVideoPlayer(
+                      url: camera.subUrl!,
+                      token: camera.subToken!,
+                    )
+                  else
+                    const ColoredBox(
+                      color: Colors.black,
+                      child: Center(
+                        child: Text(
+                          '尚未取得畫面',
+                          style: TextStyle(color: Colors.white38),
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  const Positioned(
+                    left: 10,
+                    top: 10,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Color(0xCC030808),
+                        borderRadius: BorderRadius.all(Radius.circular(6)),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          'LIVE',
+                          style: TextStyle(
+                            color: Color(0xFF35E6A5),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(camera.cameraId.toUpperCase()),
+                        Text(
+                          camera.cameraId.toUpperCase(),
+                          style: const TextStyle(
+                            color: Color(0xFF35E6A5),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.4,
+                          ),
+                        ),
                         const SizedBox(height: 4),
                         Text(
                           camera.name,
@@ -175,9 +220,12 @@ class _CameraTile extends StatelessWidget {
                   ),
                   Chip(
                     label: Text(camera.isOnline ? '在線' : '離線'),
-                    side: BorderSide(color: statusColor),
-                    labelStyle: TextStyle(color: statusColor),
-                    backgroundColor: statusColor.withValues(alpha: .1),
+                    side: BorderSide.none,
+                    labelStyle: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    backgroundColor: statusColor.withValues(alpha: .12),
                   ),
                 ],
               ),

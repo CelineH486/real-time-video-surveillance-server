@@ -4,15 +4,13 @@ import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
 import '../models/camera.dart';
+import '../models/recording.dart';
 import '../models/stream_session.dart';
 import '../models/truck.dart';
 
 class ApiClient {
-  ApiClient({
-    String baseUrl = ApiConfig.defaultBaseUrl,
-    this._apiToken = '',
-    this.onUnauthorized,
-  }) : baseUri = Uri.parse(baseUrl);
+  ApiClient({String? baseUrl, this._apiToken = '', this.onUnauthorized})
+    : baseUri = Uri.parse(baseUrl ?? ApiConfig.defaultBaseUrl);
 
   final Uri baseUri;
   String _apiToken;
@@ -98,6 +96,22 @@ class ApiClient {
     return StreamSession.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  Future<List<Recording>> getRecordings({
+    required String truckId,
+    required String cameraId,
+  }) async {
+    final response = await http.get(
+      _uri('/api/trucks/$truckId/recordings', {'cameraId': cameraId}),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+
+    final rows = jsonDecode(response.body) as List<dynamic>;
+    return rows
+        .map((row) => Recording.fromJson(row as Map<String, dynamic>))
+        .toList(growable: false);
   }
 
   void _ensureSuccess(

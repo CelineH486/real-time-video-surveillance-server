@@ -1,12 +1,11 @@
 {
-    "name": "mobile",
-    "short_name": "mobile",
+    "name": "即時影像監控",
+    "short_name": "影像監控",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "description": "Real-time truck camera surveillance.",
     "prefer_related_applications": false,
     "icons": [
         {
