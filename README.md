@@ -44,7 +44,36 @@ API exceptions are returned as JSON:
 }
 ```
 
-Run `db/migrations/000_base.sql`, `db/migrations/001_streaming.sql`, `db/migrations/002_composite_camera_key.sql`, and `db/migrations/003_user_authorization.sql` in order when installing against an existing PostgreSQL server. The Docker Compose development stack applies them automatically.
+Run the files in `db/migrations/` in numeric order when installing against an existing PostgreSQL server. The Docker Compose stack applies them automatically to a new database volume.
+
+## Environment and Compose profiles
+
+Copy `.env.example` to the Git-ignored `.env` file and replace every
+`change-me` value. Secrets must not be written into Compose files or committed
+to Git.
+
+- `compose.yaml` contains the shared application architecture.
+- `compose.dev.yaml` publishes local ports, loads development seed data, and
+  enables the test-video publisher.
+- `compose.prod.yaml` publishes only the host ports needed by the production
+  reverse proxy, truck heartbeat, RTSP publishing, and WebRTC.
+
+Start development:
+
+```powershell
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+```
+
+Validate and start production:
+
+```bash
+cp .env.production.example .env.production
+docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml config
+docker compose --env-file .env.production -f compose.yaml -f compose.prod.yaml up -d --build
+```
+
+The complete DNS, TLS, NGINX, MediaMTX, and firewall procedure is documented
+in [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md).
 
 ## API
 
@@ -75,7 +104,7 @@ The server updates `last_seen_at` for each camera heartbeat. A camera without a 
 To start PostgreSQL, the Go API, and MediaMTX together:
 
 ```powershell
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 ```
 
 Open the responsive Flutter dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer. The Docker build compiles `apps/mobile` for Web and embeds the generated assets in the Go server.

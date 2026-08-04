@@ -4,3 +4,7 @@ recordings/
 testdata/videos/
 web/*
 !web/.gitkeep
+.env
+.env.*
+!.env.example
+!.env.production.example

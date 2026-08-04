@@ -1,0 +1,32 @@
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/005_dev_seed.sql:ro
+
+  api:
+    ports:
+      - "8080:8080/tcp"
+      - "5000:5000/udp"
+
+  mediamtx:
+    ports:
+      - "8554:8554/tcp"
+      - "8889:8889/tcp"
+      - "8189:8189/tcp"
+      - "8189:8189/udp"
+      - "9996:9996/tcp"
+
+  test-publisher:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.publisher
+    restart: unless-stopped
+    depends_on:
+      - api
+      - mediamtx
+    environment:
+      STREAM_PUBLISH_PASSWORD: ${STREAM_PUBLISH_PASSWORD:?STREAM_PUBLISH_PASSWORD must be set}
+    volumes:
+      - ./testdata/videos:/videos:ro
