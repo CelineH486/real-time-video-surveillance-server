@@ -1,0 +1,6 @@
+truck/streams.json
+truck/logs/
+recordings/
+testdata/videos/
+web/*
+!web/.gitkeep

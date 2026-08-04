@@ -5,4 +5,6 @@ type Camera struct {
 	TruckID  string `json:"truckId"`
 	Name     string `json:"name"`
 	Status   string `json:"status"`
+	MainPath string `json:"mainPath"`
+	SubPath  string `json:"subPath"`
 }

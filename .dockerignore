@@ -1,0 +1,9 @@
+.git
+.agents
+recordings
+truck/logs
+truck/streams.json
+testdata/videos
+apps/mobile/.dart_tool
+apps/mobile/build
+web

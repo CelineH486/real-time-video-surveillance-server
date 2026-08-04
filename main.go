@@ -1,130 +1,127 @@
 package main
 
 import (
-	"database/sql"
-	"encoding/json"
-	"fmt"
+	"embed"
+	"io/fs"
 	"log"
-	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
 
+	"real-time-video-surveillance-system/controllers"
 	"real-time-video-surveillance-system/db"
-	"real-time-video-surveillance-system/models"
+	appRoutes "real-time-video-surveillance-system/routes"
+	"real-time-video-surveillance-system/services"
 )
 
-var databaseConn *sql.DB
+//go:embed web/*
+var webAssets embed.FS
 
-func startUDPServer() {
-	addr, err := net.ResolveUDPAddr("udp", ":5000")
-	if err != nil {
-		log.Fatal(err)
+func env(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
 	}
-
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	fmt.Println("UDP Server Listening :5000")
-
-	buffer := make([]byte, 65535)
-
-	for {
-		n, _, err := conn.ReadFromUDP(buffer)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-
-		var truckStatus models.TruckStatus
-
-		err = json.Unmarshal(buffer[:n], &truckStatus)
-		if err != nil {
-			log.Println("Invalid JSON:", err)
-			continue
-		}
-
-		err = db.UpdateTruckStatus(
-			databaseConn,
-			truckStatus.TruckID,
-			truckStatus.Status,
-		)
-
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-
-		fmt.Printf(
-			"TruckID=%s Status=%s Updated DB\n",
-			truckStatus.TruckID,
-			truckStatus.Status,
-		)
-	}
+	return fallback
 }
 
-func startHTTPServer() {
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+func splitCSV(value string) map[string]bool {
+	result := map[string]bool{}
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			result[item] = true
+		}
+	}
+	return result
+}
 
-		response := map[string]string{
-			"status": "ok",
+func withCORS(next http.Handler, allowedOrigins string) http.Handler {
+	origins := splitCSV(allowedOrigins)
+	allowAny := origins["*"]
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && (allowAny || origins[origin] || isLocalDevelopmentOrigin(origin)) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		}
 
-		json.NewEncoder(w).Encode(response)
-	})
-
-	http.HandleFunc("/api/cameras", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		cameras, err := db.GetCameras(databaseConn)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		json.NewEncoder(w).Encode(cameras)
+		next.ServeHTTP(w, r)
 	})
+}
 
-	http.HandleFunc("/api/trucks", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+func isLocalDevelopmentOrigin(origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
 
-		trucks, err := db.GetTrucks(databaseConn)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
 
-		json.NewEncoder(w).Encode(trucks)
-	})
-
-	http.HandleFunc("/api/trucks/truck001/cameras", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		cameras, err := db.GetCamerasByTruckID(databaseConn, "truck001")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		json.NewEncoder(w).Encode(cameras)
-	})
-
-	fmt.Println("HTTP Server Listening :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	hostname := parsed.Hostname()
+	return hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1"
 }
 
 func main() {
-	var err error
-
-	databaseConn, err = db.Connect()
+	database, err := db.Connect()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer databaseConn.Close()
+	defer database.Close()
 
-	go startUDPServer()
+	streamService := services.NewStreamService(
+		env("STREAM_PUBLIC_BASE_URL", "http://localhost:8889"),
+		env("STREAM_SIGNING_KEY", "development-only-change-me"),
+		env("STREAM_PUBLISH_PASSWORD", "development-publish-password"),
+	)
+	authService := services.NewAuthService(database)
+	recordingService := services.NewRecordingService(
+		env("PLAYBACK_INTERNAL_BASE_URL", "http://localhost:9996"),
+		env("API_PUBLIC_BASE_URL", "http://localhost:8080"),
+		streamService,
+	)
+	statusService := services.NewStatusService(database)
 
-	startHTTPServer()
+	healthController := &controllers.HealthController{}
+	truckController := controllers.NewTruckController(database)
+	cameraController := controllers.NewCameraController(database, streamService)
+	streamController := controllers.NewStreamController(database, streamService)
+	recordingController := controllers.NewRecordingController(database, recordingService, streamService)
+	mediaMTXController := controllers.NewMediaMTXController(database, streamService)
+	sessionController := controllers.NewSessionController(database)
+
+	webContent, err := fs.Sub(webAssets, "web")
+	if err != nil {
+		log.Fatalf("load web assets: %v", err)
+	}
+	handler := appRoutes.New(appRoutes.Controllers{
+		Health: healthController, Trucks: truckController, Cameras: cameraController,
+		Streams: streamController, Recordings: recordingController, MediaMTX: mediaMTXController,
+		Auth:     authService,
+		Sessions: sessionController,
+	}, webContent)
+	handlerWithCORS := withCORS(handler, env("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:8080"))
+
+	offlineTimeout, err := time.ParseDuration(env("CAMERA_OFFLINE_TIMEOUT", "15s"))
+	if err != nil {
+		log.Fatalf("invalid CAMERA_OFFLINE_TIMEOUT: %v", err)
+	}
+	go statusService.ListenUDP(env("UDP_ADDRESS", ":5000"))
+	go statusService.MonitorOffline(offlineTimeout)
+	go statusService.MonitorMediaMTX(os.Getenv("MEDIAMTX_API_URL"))
+
+	address := env("HTTP_ADDRESS", ":8080")
+	log.Printf("HTTP server listening on %s", address)
+	log.Fatal(http.ListenAndServe(address, handlerWithCORS))
 }
