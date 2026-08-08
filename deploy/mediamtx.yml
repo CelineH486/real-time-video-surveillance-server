@@ -13,7 +13,7 @@ webrtc: true
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 webrtcLocalTCPAddress: :8189
-webrtcAdditionalHosts: [192.168.31.241]
+webrtcAdditionalHosts: []
 webrtcAllowOrigins: ["*"]
 
 # MediaMTX asks the Go server before accepting a publisher or viewer.
