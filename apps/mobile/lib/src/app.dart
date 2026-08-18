@@ -6,6 +6,7 @@ import 'screens/camera_grid_screen.dart';
 import 'screens/camera_live_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/truck_select_screen.dart';
+import 'screens/truck_location_screen.dart';
 import 'services/api_client.dart';
 import 'services/session_store.dart';
 
@@ -126,6 +127,14 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
     Widget page = TruckSelectScreen(apiClient: _apiClient, onLogout: _logout);
 
     if (segments.length == 3 &&
+        segments[0] == 'trucks' &&
+        segments[2] == 'location') {
+      page = TruckLocationScreen(
+        apiClient: _apiClient,
+        truckId: segments[1],
+        onLogout: _logout,
+      );
+    } else if (segments.length == 3 &&
         segments[0] == 'trucks' &&
         segments[2] == 'cameras') {
       page = CameraGridScreen(

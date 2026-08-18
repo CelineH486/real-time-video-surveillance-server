@@ -95,7 +95,7 @@ class _TruckSelectScreenState extends State<TruckSelectScreen> {
                     child: InkWell(
                       onTap: () => Navigator.of(
                         context,
-                      ).pushNamed('/trucks/${truck.truckId}/cameras'),
+                      ).pushNamed('/trucks/${truck.truckId}/location'),
                       child: Padding(
                         padding: const EdgeInsets.all(20),
                         child: Row(

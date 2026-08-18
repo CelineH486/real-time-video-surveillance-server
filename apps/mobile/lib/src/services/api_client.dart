@@ -1,12 +1,14 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../config/api_config.dart';
 import '../models/camera.dart';
 import '../models/recording.dart';
 import '../models/stream_session.dart';
 import '../models/truck.dart';
+import '../models/truck_location.dart';
 
 class ApiClient {
   ApiClient({String? baseUrl, this._apiToken = '', this.onUnauthorized})
@@ -81,6 +83,28 @@ class ApiClient {
     return rows
         .map((row) => Camera.fromJson(row as Map<String, dynamic>))
         .toList(growable: false);
+  }
+
+  Future<TruckLocation?> getTruckLocation(String truckId) async {
+    final response = await http.get(
+      _uri('/api/trucks/$truckId/location'),
+      headers: _headers,
+    );
+    if (response.statusCode == 404) return null;
+    _ensureSuccess(response);
+    return TruckLocation.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  WebSocketChannel openTruckLocationSocket(String truckId) {
+    final socketUri = _uri(
+      '/api/trucks/$truckId/locations/ws',
+    ).replace(scheme: baseUri.scheme == 'https' ? 'wss' : 'ws');
+    return WebSocketChannel.connect(
+      socketUri,
+      protocols: ['bearer', _apiToken],
+    );
   }
 
   Future<StreamSession> createPlaySession({

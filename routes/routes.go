@@ -17,6 +17,7 @@ type Controllers struct {
 	MediaMTX   *controllers.MediaMTXController
 	Auth       *services.AuthService
 	Sessions   *controllers.SessionController
+	Locations  *controllers.LocationController
 }
 
 func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
@@ -42,6 +43,9 @@ func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
 	mux.HandleFunc("GET /api/cameras", controllers.Auth.Middleware(controllers.Cameras.List))
 	mux.HandleFunc("GET /api/trucks", controllers.Auth.Middleware(controllers.Trucks.List))
 	mux.HandleFunc("GET /api/trucks/{truckID}/cameras", controllers.Auth.Middleware(controllers.Cameras.ListByTruck))
+	mux.HandleFunc("GET /api/trucks/{truckID}/location", controllers.Auth.Middleware(controllers.Locations.Current))
+	mux.HandleFunc("GET /api/trucks/{truckID}/locations/ws", controllers.Auth.Middleware(controllers.Locations.Stream))
+	mux.HandleFunc("POST /api/trucks/{truckID}/locations", controllers.Auth.Middleware(controllers.Locations.Create))
 	mux.HandleFunc("POST /api/trucks/{truckID}/cameras/{cameraID}/play", controllers.Auth.Middleware(controllers.Streams.Play))
 	mux.HandleFunc("GET /api/trucks/{truckID}/recordings", controllers.Auth.Middleware(controllers.Recordings.List))
 	mux.HandleFunc("POST /api/trucks/{truckID}/cameras/{cameraID}/recordings/play", controllers.Auth.Middleware(controllers.Recordings.Play))

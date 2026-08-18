@@ -201,6 +201,86 @@ func GetTrucksForUser(dbConn *sql.DB, userID string) ([]map[string]string, error
 	return trucks, rows.Err()
 }
 
+func CurrentTruckLocation(dbConn *sql.DB, truckID string, now time.Time) (models.TruckLocation, bool, error) {
+	var location models.TruckLocation
+	err := dbConn.QueryRow(`
+		SELECT truck_id, latitude, longitude, altitude_m, speed_kmh,
+		       heading_degrees, accuracy_m, satellites, fix_quality,
+		       recorded_at, received_at, stopped_since,
+		       stop_anchor_latitude, stop_anchor_longitude
+		FROM truck_location_state
+		WHERE truck_id = $1
+	`, truckID).Scan(
+		&location.TruckID, &location.Latitude, &location.Longitude, &location.AltitudeM,
+		&location.SpeedKmh, &location.HeadingDegrees, &location.AccuracyM,
+		&location.Satellites, &location.FixQuality, &location.RecordedAt,
+		&location.ReceivedAt, &location.StoppedSince, &location.StopAnchorLatitude,
+		&location.StopAnchorLongitude,
+	)
+	if err == sql.ErrNoRows {
+		return models.TruckLocation{}, false, nil
+	}
+	if err != nil {
+		return models.TruckLocation{}, false, err
+	}
+	if location.StoppedSince != nil {
+		seconds := int64(now.Sub(*location.StoppedSince).Seconds())
+		if seconds < 0 {
+			seconds = 0
+		}
+		location.StoppedSeconds = &seconds
+	}
+	return location, true, nil
+}
+
+func SaveTruckLocation(dbConn *sql.DB, truckID string, input models.LocationInput, recordedAt time.Time, receivedAt time.Time, anchorLat, anchorLon *float64, stoppedSince *time.Time) (models.TruckLocation, error) {
+	tx, err := dbConn.Begin()
+	if err != nil {
+		return models.TruckLocation{}, err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO truck_locations (
+			truck_id, latitude, longitude, altitude_m, speed_kmh, heading_degrees,
+			accuracy_m, satellites, fix_quality, recorded_at, received_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, truckID, input.Latitude, input.Longitude, input.AltitudeM, input.SpeedKmh,
+		input.HeadingDegrees, input.AccuracyM, input.Satellites, input.FixQuality,
+		recordedAt, receivedAt)
+	if err != nil {
+		return models.TruckLocation{}, err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO truck_location_state (
+			truck_id, latitude, longitude, altitude_m, speed_kmh, heading_degrees,
+			accuracy_m, satellites, fix_quality, recorded_at, received_at,
+			stop_anchor_latitude, stop_anchor_longitude, stopped_since
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (truck_id) DO UPDATE SET
+			latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
+			altitude_m = EXCLUDED.altitude_m, speed_kmh = EXCLUDED.speed_kmh,
+			heading_degrees = EXCLUDED.heading_degrees, accuracy_m = EXCLUDED.accuracy_m,
+			satellites = EXCLUDED.satellites, fix_quality = EXCLUDED.fix_quality,
+			recorded_at = EXCLUDED.recorded_at, received_at = EXCLUDED.received_at,
+			stop_anchor_latitude = EXCLUDED.stop_anchor_latitude,
+			stop_anchor_longitude = EXCLUDED.stop_anchor_longitude,
+			stopped_since = EXCLUDED.stopped_since
+		WHERE truck_location_state.recorded_at <= EXCLUDED.recorded_at
+	`, truckID, input.Latitude, input.Longitude, input.AltitudeM, input.SpeedKmh,
+		input.HeadingDegrees, input.AccuracyM, input.Satellites, input.FixQuality,
+		recordedAt, receivedAt, anchorLat, anchorLon, stoppedSince)
+	if err != nil {
+		return models.TruckLocation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.TruckLocation{}, err
+	}
+	location, _, err := CurrentTruckLocation(dbConn, truckID, receivedAt)
+	return location, err
+}
+
 func GetCamerasByTruckID(dbConn *sql.DB, truckID string) ([]map[string]string, error) {
 	rows, err := dbConn.Query(`
 		SELECT
