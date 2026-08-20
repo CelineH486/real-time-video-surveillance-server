@@ -167,13 +167,22 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
         _staleAfter;
   }
 
+  void _goBack() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    navigator.pushReplacementNamed('/');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 82,
         leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _goBack,
           icon: const Icon(Icons.arrow_back),
           tooltip: '返回車機列表',
         ),

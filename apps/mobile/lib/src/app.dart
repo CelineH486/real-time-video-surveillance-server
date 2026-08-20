@@ -11,19 +11,28 @@ import 'services/api_client.dart';
 import 'services/session_store.dart';
 
 class SurveillanceApp extends StatefulWidget {
-  const SurveillanceApp({super.key, this.sessionStore, this.apiClient});
+  const SurveillanceApp({
+    super.key,
+    this.sessionStore,
+    this.apiClient,
+    this.initialRoute,
+  });
 
   final SessionStore? sessionStore;
   final ApiClient? apiClient;
+  final String? initialRoute;
 
   @override
   State<SurveillanceApp> createState() => _SurveillanceAppState();
 }
 
 class _SurveillanceAppState extends State<SurveillanceApp> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
+  static const _sessionStoreTimeout = Duration(seconds: 2);
+
+  GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final SessionStore _sessionStore;
   late final ApiClient _apiClient;
+  late final String _initialRoute;
   bool _initializing = true;
   bool _authenticated = false;
   String _lastEmail = '';
@@ -33,31 +42,63 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
     super.initState();
     _sessionStore = widget.sessionStore ?? const SecureSessionStore();
     _apiClient = widget.apiClient ?? ApiClient(onUnauthorized: _expireSession);
+    _initialRoute = _resolveInitialRoute();
     unawaited(_restoreSession());
   }
 
+  String _resolveInitialRoute() {
+    final configuredRoute = widget.initialRoute;
+    if (configuredRoute != null) return configuredRoute;
+
+    final platformRoute =
+        WidgetsBinding.instance.platformDispatcher.defaultRouteName;
+    if (platformRoute.isNotEmpty && platformRoute != '/') return platformRoute;
+
+    // Flutter Web keeps named routes after the hash when using its default URL
+    // strategy. Uri.base still contains that value after a full page refresh.
+    final fragment = Uri.base.fragment;
+    if (fragment.startsWith('/')) return Uri.parse(fragment).path;
+    return '/';
+  }
+
   Future<void> _restoreSession() async {
-    final values = await Future.wait([
-      _sessionStore.readToken(),
-      _sessionStore.readEmail(),
-    ]);
+    List<String?> values;
+    try {
+      values = await Future.wait([
+        _sessionStore.readToken(),
+        _sessionStore.readEmail(),
+      ]).timeout(_sessionStoreTimeout);
+    } catch (error) {
+      debugPrint('Restore session storage unavailable: $error');
+      values = const [null, null];
+    }
     final token = values[0];
     _lastEmail = values[1] ?? '';
     if (token != null && token.isNotEmpty) {
       _apiClient.apiToken = token;
       _authenticated = true;
     }
-    if (mounted) setState(() => _initializing = false);
+    if (mounted) {
+      setState(() {
+        _navigatorKey = GlobalKey<NavigatorState>();
+        _initializing = false;
+      });
+    }
   }
 
   Future<void> _login(String email, String password) async {
     final token = await _apiClient.login(email: email, password: password);
-    await Future.wait([
-      _sessionStore.writeToken(token),
-      _sessionStore.writeEmail(email),
-    ]);
+    try {
+      await Future.wait([
+        _sessionStore.writeToken(token),
+        _sessionStore.writeEmail(email),
+      ]).timeout(_sessionStoreTimeout);
+    } catch (error) {
+      debugPrint('Persist session storage unavailable: $error');
+    }
     if (mounted) {
       setState(() {
+        _navigatorKey = GlobalKey<NavigatorState>();
         _lastEmail = email;
         _authenticated = true;
       });
@@ -78,15 +119,26 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
 
   Future<void> _clearSession() async {
     _apiClient.apiToken = '';
-    await _sessionStore.deleteToken();
+    try {
+      await _sessionStore.deleteToken().timeout(_sessionStoreTimeout);
+    } catch (error) {
+      debugPrint('Clear session storage unavailable: $error');
+    }
     if (!mounted) return;
-    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
-    setState(() => _authenticated = false);
+    setState(() {
+      _navigatorKey = GlobalKey<NavigatorState>();
+      _authenticated = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      key: ValueKey(
+        _initializing
+            ? 'initializing'
+            : (_authenticated ? 'authenticated' : 'login'),
+      ),
       navigatorKey: _navigatorKey,
       title: '即時影像監控',
       debugShowCheckedModeBanner: false,
@@ -112,11 +164,15 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
         ),
         useMaterial3: true,
       ),
-      home: _initializing
+      home: _authenticated
+          ? null
+          : _initializing
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _authenticated
-          ? TruckSelectScreen(apiClient: _apiClient, onLogout: _logout)
           : LoginScreen(onLogin: _login, initialEmail: _lastEmail),
+      initialRoute: !_initializing && _authenticated ? _initialRoute : '/',
+      onGenerateInitialRoutes: !_initializing && _authenticated
+          ? (routeName) => [_route(RouteSettings(name: routeName))]
+          : null,
       onGenerateRoute: _authenticated ? _route : null,
     );
   }
