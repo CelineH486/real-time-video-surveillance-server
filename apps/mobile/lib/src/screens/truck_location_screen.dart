@@ -220,7 +220,12 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
                 );
 
                 return Padding(
-                  padding: EdgeInsets.all(wide ? 32 : 16),
+                  padding: EdgeInsets.fromLTRB(
+                    wide ? 36 : 16,
+                    wide ? 22 : 16,
+                    wide ? 36 : 16,
+                    wide ? 32 : 16,
+                  ),
                   child: wide
                       ? Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
