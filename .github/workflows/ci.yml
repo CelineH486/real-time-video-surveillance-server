@@ -44,8 +44,39 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-      - name: Run tests with race detector
-        run: go test -race ./...
+      - name: Run tests with race detector and coverage
+        shell: bash
+        run: |
+          mkdir -p coverage
+          go test -race -covermode=atomic -coverpkg=./... \
+            -coverprofile=coverage/go-coverage.out ./...
+
+      - name: Summarize Go coverage
+        shell: bash
+        run: |
+          coverage_total="$(go tool cover -func=coverage/go-coverage.out | awk '/^total:/ {print $3}')"
+          go tool cover -html=coverage/go-coverage.out \
+            -o coverage/go-coverage.html
+          {
+            echo "## Go test coverage"
+            echo
+            echo "Total coverage: **${coverage_total}**"
+            echo
+            echo "<details><summary>Package details</summary>"
+            echo
+            echo '```text'
+            go tool cover -func=coverage/go-coverage.out
+            echo '```'
+            echo "</details>"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Go coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: go-coverage-${{ github.sha }}
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Build all packages
         run: go build ./...
@@ -220,8 +251,43 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      - name: Run tests
-        run: flutter test
+      - name: Run tests with coverage
+        run: flutter test --coverage
+
+      - name: Summarize Flutter coverage
+        shell: bash
+        run: |
+          read -r lines_hit lines_found <<< "$(
+            awk -F: '
+              /^LH:/ { hit += $2 }
+              /^LF:/ { found += $2 }
+              END { print hit + 0, found + 0 }
+            ' coverage/lcov.info
+          )"
+          coverage_total="$(
+            awk -v hit="${lines_hit}" -v found="${lines_found}" '
+              BEGIN {
+                if (found == 0) {
+                  print "0.0%"
+                } else {
+                  printf "%.1f%%", (hit / found) * 100
+                }
+              }
+            '
+          )"
+          {
+            echo "## Flutter test coverage"
+            echo
+            echo "Lines covered: **${lines_hit}/${lines_found} (${coverage_total})**"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Flutter coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: flutter-coverage-${{ github.sha }}
+          path: apps/mobile/coverage/lcov.info
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Build web application
         run: flutter build web --release

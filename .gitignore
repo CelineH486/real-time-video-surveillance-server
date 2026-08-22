@@ -2,6 +2,7 @@ truck/streams.json
 truck/logs/
 recordings/
 testdata/videos/
+coverage/
 web/*
 !web/.gitkeep
 .env
