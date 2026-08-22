@@ -82,3 +82,25 @@ jobs:
 
       - name: Build web application
         run: flutter build web --release
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.2.0
+
+      - name: Build production image
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: surveillance-server:ci
+          cache-from: type=gha,scope=surveillance-server
+          cache-to: type=gha,mode=max,scope=surveillance-server
