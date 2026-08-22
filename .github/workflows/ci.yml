@@ -50,6 +50,149 @@ jobs:
       - name: Build all packages
         run: go build ./...
 
+  dependency-security:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install vulnerability scanners
+        shell: bash
+        run: |
+          scanner_bin="${RUNNER_TEMP}/security-tools"
+          mkdir -p "${scanner_bin}"
+          GOBIN="${scanner_bin}" go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          GOBIN="${scanner_bin}" go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.4.0
+          echo "${scanner_bin}" >> "${GITHUB_PATH}"
+
+      - name: Report reachable Go vulnerabilities
+        continue-on-error: true
+        run: govulncheck -test ./...
+
+      - name: Scan Go and Flutter dependencies
+        shell: bash
+        run: |
+          report="${RUNNER_TEMP}/osv-report.txt"
+
+          set +e
+          osv-scanner scan source --recursive --format table \
+            --output-file "${report}" .
+          scan_status=$?
+          set -e
+
+          cat "${report}"
+
+          if ((scan_status != 0 && scan_status != 1)); then
+            echo "OSV-Scanner failed with status ${scan_status}"
+            exit "${scan_status}"
+          fi
+
+          if grep -Eq '\([1-9][0-9]* Critical,' "${report}"; then
+            echo "Critical dependency vulnerabilities found"
+            exit 1
+          fi
+
+          if ((scan_status == 1)); then
+            echo "Non-critical vulnerabilities were reported but do not block CI"
+          fi
+
+  postgres-e2e:
+    name: PostgreSQL migrations and E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: host=127.0.0.1 port=5432 user=surveillance password=ci-password dbname=surveillance sslmode=disable
+      HTTP_ADDRESS: 127.0.0.1:8080
+      UDP_ADDRESS: 127.0.0.1:0
+      API_PUBLIC_BASE_URL: http://127.0.0.1:8080
+      STREAM_PUBLIC_BASE_URL: http://127.0.0.1:8889
+      STREAM_SIGNING_KEY: ci-only-stream-signing-key
+      STREAM_PUBLISH_PASSWORD: ci-only-publish-password
+      E2E_API_BASE_URL: http://127.0.0.1:8080
+      E2E_API_TOKEN: dev-user-token
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: surveillance
+          POSTGRES_USER: surveillance
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U surveillance -d surveillance"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Apply database migrations
+        shell: bash
+        run: |
+          for migration in db/migrations/*.sql; do
+            echo "Applying ${migration}"
+            docker exec -i "${{ job.services.postgres.id }}" \
+              psql -v ON_ERROR_STOP=1 -U surveillance -d surveillance < "${migration}"
+          done
+
+      - name: Seed E2E test data
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" \
+            psql -v ON_ERROR_STOP=1 -U surveillance -d surveillance < db/dev-seed.sql
+
+      - name: Build API
+        run: go build -o /tmp/surveillance-api .
+
+      - name: Start API and wait for readiness
+        shell: bash
+        run: |
+          /tmp/surveillance-api > /tmp/surveillance-api.log 2>&1 &
+          echo "$!" > /tmp/surveillance-api.pid
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "API did not become ready"
+          cat /tmp/surveillance-api.log
+          exit 1
+
+      - name: Run authorization E2E tests
+        run: go test -tags=e2e ./tests/e2e
+
+      - name: Print API logs on failure
+        if: failure()
+        run: cat /tmp/surveillance-api.log || true
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [[ -f /tmp/surveillance-api.pid ]]; then
+            kill "$(cat /tmp/surveillance-api.pid)" 2>/dev/null || true
+          fi
+
   flutter:
     name: Flutter checks
     runs-on: ubuntu-latest
