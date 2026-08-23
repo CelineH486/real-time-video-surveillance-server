@@ -11,12 +11,14 @@ class WhepVideoPlayer extends StatefulWidget {
     required this.token,
     this.muted = true,
     this.fit = RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    this.onAuthenticationExpired,
   });
 
   final String url;
   final String token;
   final bool muted;
   final RTCVideoViewObjectFit fit;
+  final VoidCallback? onAuthenticationExpired;
 
   @override
   State<WhepVideoPlayer> createState() => _WhepVideoPlayerState();
@@ -79,7 +81,8 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
         if (!mounted || _disposing) return;
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state ==
-                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
           setState(() {
             _ready = false;
             _error = '串流連線已中斷，正在重新連線…';
@@ -101,6 +104,9 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
         body: localDescription?.sdp ?? offer.sdp,
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          widget.onAuthenticationExpired?.call();
+        }
         throw StateError('WHEP ${response.statusCode}');
       }
 

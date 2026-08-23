@@ -140,6 +140,7 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
             return _CameraTile(
               key: ValueKey(camera.cameraId),
               camera: camera,
+              onAuthenticationExpired: () => unawaited(_reload()),
               onTap: () => Navigator.of(context).pushNamed(
                 '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
               ),
@@ -152,10 +153,16 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
 }
 
 class _CameraTile extends StatelessWidget {
-  const _CameraTile({super.key, required this.camera, required this.onTap});
+  const _CameraTile({
+    super.key,
+    required this.camera,
+    required this.onTap,
+    required this.onAuthenticationExpired,
+  });
 
   final Camera camera;
   final VoidCallback onTap;
+  final VoidCallback onAuthenticationExpired;
 
   @override
   Widget build(BuildContext context) {
@@ -180,6 +187,7 @@ class _CameraTile extends StatelessWidget {
                     WhepVideoPlayer(
                       url: camera.subUrl!,
                       token: camera.subToken!,
+                      onAuthenticationExpired: onAuthenticationExpired,
                     )
                   else
                     const ColoredBox(

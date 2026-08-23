@@ -207,6 +207,7 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                                   url: data.session.url,
                                   token: data.session.accessToken,
                                   muted: true,
+                                  onAuthenticationExpired: _reloadLive,
                                 ),
                         ),
                       ),
