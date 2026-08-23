@@ -10,6 +10,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/truck_location.dart';
 import '../services/api_client.dart';
 
+enum _LocationSocketStatus { connecting, connected, reconnecting }
+
 class TruckLocationScreen extends StatefulWidget {
   const TruckLocationScreen({
     super.key,
@@ -43,6 +45,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
   LatLng? _movementTarget;
   bool _mapReady = false;
   bool _loading = true;
+  _LocationSocketStatus _socketStatus = _LocationSocketStatus.connecting;
   String? _error;
 
   @override
@@ -95,12 +98,31 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
     unawaited(_socketSubscription?.cancel());
     unawaited(_channel?.sink.close());
 
+    if (mounted) {
+      setState(() => _socketStatus = _LocationSocketStatus.connecting);
+    }
+
     try {
       final channel = widget.apiClient.openTruckLocationSocket(widget.truckId);
       _channel = channel;
+      unawaited(
+        channel.ready.then<void>(
+          (_) {
+            if (mounted && identical(_channel, channel)) {
+              setState(() => _socketStatus = _LocationSocketStatus.connected);
+            }
+          },
+          onError: (Object _) {
+            if (identical(_channel, channel)) _scheduleReconnect();
+          },
+        ),
+      );
       _socketSubscription = channel.stream.listen(
         (message) {
           final json = jsonDecode(message as String) as Map<String, dynamic>;
+          if (_socketStatus != _LocationSocketStatus.connected) {
+            setState(() => _socketStatus = _LocationSocketStatus.connected);
+          }
           _applyLocation(TruckLocation.fromJson(json));
         },
         onError: (_) => _scheduleReconnect(),
@@ -114,6 +136,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
 
   void _scheduleReconnect() {
     if (!mounted || _reconnectTimer?.isActive == true) return;
+    setState(() => _socketStatus = _LocationSocketStatus.reconnecting);
     _reconnectTimer = Timer(const Duration(seconds: 2), _connectSocket);
   }
 
@@ -204,55 +227,62 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 900;
-                final map = _MapPanel(
-                  controller: _mapController,
-                  location: _location,
-                  markerPosition: _markerPosition,
-                  stale: _stale,
-                  truckId: widget.truckId,
-                  onMapReady: () {
-                    _mapReady = true;
-                    final position = _markerPosition;
-                    if (position != null) {
-                      _followMarker(position, initial: true);
-                    }
-                  },
-                  onMarkerTap: _showVehicleDetails,
-                );
-                final details = _LocationDetails(
-                  location: _location,
-                  stale: _stale,
-                  error: _error,
-                );
+          : Column(
+              children: [
+                _ConnectionBanner(status: _socketStatus, waitingForGps: _stale),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final wide = constraints.maxWidth >= 900;
+                      final map = _MapPanel(
+                        controller: _mapController,
+                        location: _location,
+                        markerPosition: _markerPosition,
+                        stale: _stale,
+                        truckId: widget.truckId,
+                        onMapReady: () {
+                          _mapReady = true;
+                          final position = _markerPosition;
+                          if (position != null) {
+                            _followMarker(position, initial: true);
+                          }
+                        },
+                        onMarkerTap: _showVehicleDetails,
+                      );
+                      final details = _LocationDetails(
+                        location: _location,
+                        stale: _stale,
+                        error: _error,
+                      );
 
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    wide ? 36 : 16,
-                    wide ? 22 : 16,
-                    wide ? 36 : 16,
-                    wide ? 32 : 16,
-                  ),
-                  child: wide
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(flex: 2, child: map),
-                            const SizedBox(width: 20),
-                            SizedBox(width: 360, child: details),
-                          ],
-                        )
-                      : ListView(
-                          children: [
-                            SizedBox(height: 440, child: map),
-                            const SizedBox(height: 16),
-                            details,
-                          ],
+                      return Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          wide ? 36 : 16,
+                          wide ? 22 : 16,
+                          wide ? 36 : 16,
+                          wide ? 32 : 16,
                         ),
-                );
-              },
+                        child: wide
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(flex: 2, child: map),
+                                  const SizedBox(width: 20),
+                                  SizedBox(width: 360, child: details),
+                                ],
+                              )
+                            : ListView(
+                                children: [
+                                  SizedBox(height: 440, child: map),
+                                  const SizedBox(height: 16),
+                                  details,
+                                ],
+                              ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
     );
   }
@@ -285,6 +315,64 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
             },
             icon: const Icon(Icons.videocam_outlined),
             label: const Text('查看即時監控'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConnectionBanner extends StatelessWidget {
+  const _ConnectionBanner({required this.status, required this.waitingForGps});
+
+  final _LocationSocketStatus status;
+  final bool waitingForGps;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, icon, label) = switch (status) {
+      _LocationSocketStatus.connecting => (
+        const Color(0xFFFFBD66),
+        Icons.sync,
+        '定位服務連線中…',
+      ),
+      _LocationSocketStatus.reconnecting => (
+        const Color(0xFFFF6B73),
+        Icons.sync_problem,
+        '定位服務暫時中斷，2 秒後自動重新連線',
+      ),
+      _LocationSocketStatus.connected when waitingForGps => (
+        const Color(0xFFFFBD66),
+        Icons.gps_not_fixed,
+        '定位服務已連線，等待車機傳送新的 GPS 位置',
+      ),
+      _ => (const Color(0xFF35E6A5), Icons.gps_fixed, '定位服務已自動連線，正在接收即時位置'),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 11),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0D141B),
+        border: Border(bottom: BorderSide(color: Color(0xFF263540))),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const Text(
+            'WebSocket',
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 11,
+              letterSpacing: 1.2,
+            ),
           ),
         ],
       ),
