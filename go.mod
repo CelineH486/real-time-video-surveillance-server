@@ -1,6 +1,6 @@
 module real-time-video-surveillance-system
 
-go 1.26.3
+go 1.26.6
 
 require (
 	github.com/coder/websocket v1.8.15
