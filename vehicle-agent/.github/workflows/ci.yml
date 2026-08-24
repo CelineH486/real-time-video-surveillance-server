@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go tests
+        run: go test ./...
+      - name: Shell syntax
+        run: |
+          bash -n camera-agent/camera-agent \
+            camera-agent/camera-agent-lib.sh \
+            camera-agent/install.sh \
+            camera-agent/test.sh \
+            gps-agent/install.sh \
+            scripts/configure-wifi.sh
+      - name: Camera URL encoding tests
+        run: bash camera-agent/test.sh
+      - name: Linux ARM64 build
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: "0"
+        run: go build -trimpath -o /tmp/gps-agent ./gps-agent
