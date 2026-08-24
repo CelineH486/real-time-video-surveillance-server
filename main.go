@@ -100,6 +100,7 @@ func main() {
 	recordingController := controllers.NewRecordingController(database, recordingService, streamService)
 	mediaMTXController := controllers.NewMediaMTXController(database, streamService)
 	sessionController := controllers.NewSessionController(database)
+	locationController := controllers.NewLocationController(database)
 
 	webContent, err := fs.Sub(webAssets, "web")
 	if err != nil {
@@ -108,8 +109,9 @@ func main() {
 	handler := appRoutes.New(appRoutes.Controllers{
 		Health: healthController, Trucks: truckController, Cameras: cameraController,
 		Streams: streamController, Recordings: recordingController, MediaMTX: mediaMTXController,
-		Auth:     authService,
-		Sessions: sessionController,
+		Auth:      authService,
+		Sessions:  sessionController,
+		Locations: locationController,
 	}, webContent)
 	handlerWithCORS := withCORS(handler, env("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:8080"))
 

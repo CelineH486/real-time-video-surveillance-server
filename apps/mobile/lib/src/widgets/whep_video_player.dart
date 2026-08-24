@@ -11,22 +11,29 @@ class WhepVideoPlayer extends StatefulWidget {
     required this.token,
     this.muted = true,
     this.fit = RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    this.onAuthenticationExpired,
   });
 
   final String url;
   final String token;
   final bool muted;
   final RTCVideoViewObjectFit fit;
+  final VoidCallback? onAuthenticationExpired;
 
   @override
   State<WhepVideoPlayer> createState() => _WhepVideoPlayerState();
 }
 
 class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
+  static const _reconnectDelay = Duration(seconds: 2);
+
   final RTCVideoRenderer _renderer = RTCVideoRenderer();
   RTCPeerConnection? _peerConnection;
   Uri? _sessionUri;
+  Timer? _reconnectTimer;
   bool _rendererInitialized = false;
+  bool _restarting = false;
+  bool _disposing = false;
   bool _ready = false;
   String? _error;
 
@@ -71,15 +78,16 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
         }
       };
       peerConnection.onConnectionState = (state) {
-        if (!mounted) return;
+        if (!mounted || _disposing) return;
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state ==
                 RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
             state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
           setState(() {
             _ready = false;
-            _error = '串流連線已中斷';
+            _error = '串流連線已中斷，正在重新連線…';
           });
+          _scheduleReconnect();
         }
       };
 
@@ -96,6 +104,9 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
         body: localDescription?.sdp ?? offer.sdp,
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          widget.onAuthenticationExpired?.call();
+        }
         throw StateError('WHEP ${response.statusCode}');
       }
 
@@ -112,8 +123,14 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
           _ready = false;
           _error = '載入影像失敗：$error';
         });
+        _scheduleReconnect();
       }
     }
+  }
+
+  void _scheduleReconnect() {
+    if (_disposing || _restarting || _reconnectTimer?.isActive == true) return;
+    _reconnectTimer = Timer(_reconnectDelay, () => unawaited(_restart()));
   }
 
   Future<void> _waitForIceGathering(RTCPeerConnection peerConnection) async {
@@ -138,14 +155,22 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
   }
 
   Future<void> _restart() async {
-    await _stop(disposeRenderer: false);
-    if (mounted) {
-      setState(() {
-        _ready = false;
-        _error = null;
-      });
+    if (_disposing || _restarting) return;
+    _restarting = true;
+    _reconnectTimer?.cancel();
+    try {
+      await _stop(disposeRenderer: false);
+      if (mounted && !_disposing) {
+        setState(() {
+          _ready = false;
+          _error = null;
+        });
+        await _start();
+      }
+    } finally {
+      _restarting = false;
+      if (!_disposing && _error != null) _scheduleReconnect();
     }
-    await _start();
   }
 
   Future<void> _stop({required bool disposeRenderer}) async {
@@ -172,6 +197,8 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
 
   @override
   void dispose() {
+    _disposing = true;
+    _reconnectTimer?.cancel();
     unawaited(_stop(disposeRenderer: true));
     super.dispose();
   }

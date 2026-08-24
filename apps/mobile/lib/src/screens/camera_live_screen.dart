@@ -81,6 +81,15 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
     });
   }
 
+  void _goBack() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    navigator.pushReplacementNamed('/trucks/${widget.truckId}/cameras');
+  }
+
   Future<void> _playRecording(Recording recording) async {
     final previous = _recordingController;
     final controller = VideoPlayerController.networkUrl(
@@ -104,6 +113,11 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          onPressed: _goBack,
+          icon: const Icon(Icons.arrow_back),
+          tooltip: '返回攝影機總覽',
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -192,7 +206,8 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                               : WhepVideoPlayer(
                                   url: data.session.url,
                                   token: data.session.accessToken,
-                                  muted: false,
+                                  muted: true,
+                                  onAuthenticationExpired: _reloadLive,
                                 ),
                         ),
                       ),

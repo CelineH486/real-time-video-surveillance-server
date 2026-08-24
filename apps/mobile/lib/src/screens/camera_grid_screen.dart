@@ -23,16 +23,17 @@ class CameraGridScreen extends StatefulWidget {
 }
 
 class _CameraGridScreenState extends State<CameraGridScreen> {
-  late Future<List<Camera>> _cameras;
+  List<Camera>? _cameras;
+  Object? _loadError;
   Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _reload();
+    unawaited(_reload());
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 5),
-      (_) => _reload(),
+      (_) => unawaited(_reload()),
     );
   }
 
@@ -42,9 +43,27 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
     super.dispose();
   }
 
-  void _reload() {
-    if (!mounted) return;
-    setState(() => _cameras = widget.apiClient.getCameras(widget.truckId));
+  Future<void> _reload() async {
+    try {
+      final cameras = await widget.apiClient.getCameras(widget.truckId);
+      if (!mounted) return;
+      setState(() {
+        _cameras = cameras;
+        _loadError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadError = error);
+    }
+  }
+
+  void _goBack() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    navigator.pushReplacementNamed('/');
   }
 
   @override
@@ -52,6 +71,11 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 76,
+        leading: IconButton(
+          onPressed: _goBack,
+          icon: const Icon(Icons.arrow_back),
+          tooltip: '返回選擇車機',
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -69,7 +93,7 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: _reload,
+            onPressed: () => unawaited(_reload()),
             icon: const Icon(Icons.refresh),
             tooltip: '重新整理',
           ),
@@ -81,56 +105,64 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
           const SizedBox(width: 12),
         ],
       ),
-      body: FutureBuilder<List<Camera>>(
-        future: _cameras,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('讀取攝影機失敗：${snapshot.error}'));
-          }
+      body: _buildBody(),
+    );
+  }
 
-          final cameras = snapshot.data ?? const [];
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 1000
-                  ? 3
-                  : constraints.maxWidth >= 620
-                  ? 2
-                  : 1;
-              return GridView.builder(
-                padding: EdgeInsets.all(constraints.maxWidth >= 620 ? 20 : 12),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 16 / 11.8,
-                ),
-                itemCount: cameras.length,
-                itemBuilder: (context, index) {
-                  final camera = cameras[index];
-                  return _CameraTile(
-                    camera: camera,
-                    onTap: () => Navigator.of(context).pushNamed(
-                      '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
+  Widget _buildBody() {
+    final cameras = _cameras;
+    if (cameras == null) {
+      final error = _loadError;
+      if (error != null) {
+        return Center(child: Text('讀取攝影機失敗：$error'));
+      }
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1000
+            ? 3
+            : constraints.maxWidth >= 620
+            ? 2
+            : 1;
+        return GridView.builder(
+          padding: EdgeInsets.all(constraints.maxWidth >= 620 ? 20 : 12),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            childAspectRatio: 16 / 11.8,
+          ),
+          itemCount: cameras.length,
+          itemBuilder: (context, index) {
+            final camera = cameras[index];
+            return _CameraTile(
+              key: ValueKey(camera.cameraId),
+              camera: camera,
+              onAuthenticationExpired: () => unawaited(_reload()),
+              onTap: () => Navigator.of(context).pushNamed(
+                '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
 
 class _CameraTile extends StatelessWidget {
-  const _CameraTile({required this.camera, required this.onTap});
+  const _CameraTile({
+    super.key,
+    required this.camera,
+    required this.onTap,
+    required this.onAuthenticationExpired,
+  });
 
   final Camera camera;
   final VoidCallback onTap;
+  final VoidCallback onAuthenticationExpired;
 
   @override
   Widget build(BuildContext context) {
@@ -155,6 +187,7 @@ class _CameraTile extends StatelessWidget {
                     WhepVideoPlayer(
                       url: camera.subUrl!,
                       token: camera.subToken!,
+                      onAuthenticationExpired: onAuthenticationExpired,
                     )
                   else
                     const ColoredBox(

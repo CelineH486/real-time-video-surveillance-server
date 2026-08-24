@@ -164,3 +164,17 @@ go test -tags=e2e ./tests/e2e
 The test uses AAA structure and validates the viewer authorization flow only: missing API tokens are rejected, the configured user can access `truck001`, unassigned trucks are forbidden, stream tokens are issued for assigned cameras, and the issued token passes the MediaMTX auth hook. `E2E_API_BASE_URL` and `E2E_API_TOKEN` are required. Override seeded identifiers with `E2E_TRUCK_ID`, `E2E_CAMERA_ID`, or `E2E_UNASSIGNED_TRUCK_ID`.
 
 The Web dashboard authenticates with a `.com` email address and password through `POST /api/auth/login` and revokes the session through `POST /api/auth/logout`. Passwords are stored as bcrypt hashes; the server requires 8-72 characters with at least one uppercase letter, one lowercase letter, and one number. The development login is `dev@example.com` / `Dev12345`.
+
+## Real-time vehicle location
+
+Authenticated clients submit valid location fixes to
+`POST /api/trucks/{truckID}/locations`. The shared Flutter Web and mobile client
+loads the latest fix from `GET /api/trucks/{truckID}/location`, then receives
+new fixes from the WebSocket endpoint
+`GET /api/trucks/{truckID}/locations/ws`.
+
+The location screen uses OpenStreetMap, follows the vehicle marker between
+updates, displays dates in Taiwan time, calculates stopped duration, and marks
+the GPS connection as interrupted after 30 seconds without a new fix. The
+WebSocket authenticates with the `bearer` subprotocol followed by the API token,
+so credentials are not placed in the URL.

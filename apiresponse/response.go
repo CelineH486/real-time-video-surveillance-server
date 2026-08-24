@@ -42,6 +42,9 @@ const (
 	CodeInvalidLogin                = "invalid_login"
 	CodeInvalidPasswordFormat       = "invalid_password_format"
 	CodeLogoutUnavailable           = "logout_unavailable"
+	CodeInvalidLocation             = "invalid_location"
+	CodeLocationUnavailable         = "location_unavailable"
+	CodeLocationNotFound            = "location_not_found"
 )
 
 const (
@@ -75,6 +78,9 @@ const (
 	MessageInvalidLogin                = "Email or password is incorrect"
 	MessageInvalidPasswordFormat       = "Password must be 8-72 characters and include uppercase, lowercase, and a number"
 	MessageLogoutUnavailable           = "Unable to revoke the current session"
+	MessageInvalidLocation             = "Location must contain a valid GPS fix, coordinates, speed, and optional GPS metadata"
+	MessageLocationUnavailable         = "Unable to store or load truck location"
+	MessageLocationNotFound            = "No GPS location has been received for this truck"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, value any) {

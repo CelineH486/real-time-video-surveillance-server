@@ -1,5 +1,9 @@
 logLevel: info
 
+# Vehicle uplinks can pause briefly while a mobile network changes state.
+# Keep the RTSP publisher connected long enough for short stalls to recover.
+readTimeout: 60s
+
 api: true
 apiAddress: :9997
 

@@ -25,6 +25,9 @@ func (s *AuthService) Middleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, ok := bearerToken(r.Header.Get("Authorization"))
 		if !ok {
+			token, ok = websocketBearerToken(r.Header.Get("Sec-WebSocket-Protocol"))
+		}
+		if !ok {
 			apiresponse.WriteError(w, http.StatusUnauthorized, apiresponse.CodeMissingBearerToken, apiresponse.MessageMissingBearerToken)
 			return
 		}
@@ -40,6 +43,15 @@ func (s *AuthService) Middleware(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), authenticatedUserContextKey{}, user)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+func websocketBearerToken(header string) (string, bool) {
+	protocols := strings.Split(header, ",")
+	if len(protocols) < 2 || !strings.EqualFold(strings.TrimSpace(protocols[0]), "bearer") {
+		return "", false
+	}
+	token := strings.TrimSpace(protocols[1])
+	return token, token != ""
 }
 
 func CurrentUser(ctx context.Context) (db.AuthenticatedUser, bool) {

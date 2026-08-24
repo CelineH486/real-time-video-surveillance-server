@@ -3,7 +3,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/005_dev_seed.sql:ro
+      - ./db/dev-seed.sql:/docker-entrypoint-initdb.d/006_dev_seed.sql:ro
 
   api:
     ports:
