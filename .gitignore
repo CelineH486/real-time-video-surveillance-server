@@ -3,6 +3,7 @@ truck/logs/
 recordings/
 testdata/videos/
 coverage/
+.codex-test-cache/
 web/*
 !web/.gitkeep
 .env
