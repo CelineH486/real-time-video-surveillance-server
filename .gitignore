@@ -1,4 +1,5 @@
 truck/streams.json
+truck/config.env
 truck/logs/
 recordings/
 testdata/videos/
@@ -10,3 +11,13 @@ web/*
 .env.*
 !.env.example
 !.env.production.example
+
+# Private credentials and signing material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials*.json
+service-account*.json

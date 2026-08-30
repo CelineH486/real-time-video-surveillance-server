@@ -1,5 +1,6 @@
 param(
-    [string]$ConfigPath = (Join-Path $PSScriptRoot "streams.json")
+    [string]$ConfigPath = (Join-Path $PSScriptRoot "streams.json"),
+    [string]$EnvPath = (Join-Path $PSScriptRoot "config.env")
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,13 +8,35 @@ $ErrorActionPreference = "Stop"
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
     throw "Missing config: $ConfigPath. Copy streams.example.json to streams.json first."
 }
+if (-not (Test-Path -LiteralPath $EnvPath)) {
+    throw "Missing config: $EnvPath. Copy config.env.example to config.env and set CAMERA_MEDIA_SERVER first."
+}
+
+$environment = @{}
+foreach ($line in Get-Content -LiteralPath $EnvPath) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith("#")) {
+        continue
+    }
+
+    $parts = $trimmed.Split("=", 2)
+    if ($parts.Count -ne 2) {
+        throw "Invalid config.env entry: $line"
+    }
+    $environment[$parts[0].Trim()] = $parts[1].Trim().Trim('"').Trim("'")
+}
+
+$mediaServer = $environment["CAMERA_MEDIA_SERVER"]
+if ([string]::IsNullOrWhiteSpace($mediaServer)) {
+    throw "CAMERA_MEDIA_SERVER is required in $EnvPath."
+}
 
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 if ($config.cameras.Count -ne 9) {
     throw "Exactly 9 cameras are required; found $($config.cameras.Count)."
 }
 
-$server = $config.mediaServer.TrimEnd("/") -replace '^rtsp://', ''
+$server = $mediaServer.TrimEnd("/") -replace '^rtsp://', ''
 $user = [Uri]::EscapeDataString($config.truckId)
 $password = [Uri]::EscapeDataString($config.publishPassword)
 $logDirectory = Join-Path $PSScriptRoot "logs"
