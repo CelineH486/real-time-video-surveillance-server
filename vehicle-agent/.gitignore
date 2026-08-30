@@ -1,0 +1,6 @@
+*.env
+!*.env.example
+gps-agent/bin/
+build/
+dist/
+*.log

@@ -1,6 +1,5 @@
 {
   "truckId": "truck001",
-  "mediaServer": "rtsp://stream.example.com:8554",
   "publishPassword": "replace-with-a-truck-publish-password",
   "ffmpeg": "ffmpeg",
   "cameras": [
