@@ -464,13 +464,11 @@ class _LocationDetails extends StatelessWidget {
     required this.location,
     required this.stale,
     this.error,
-    this.compact = false,
   });
 
   final TruckLocation? location;
   final bool stale;
   final String? error;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -505,18 +503,16 @@ class _LocationDetails extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!compact) ...[
-          const Text(
-            'CURRENT STATUS',
-            style: TextStyle(
-              color: Color(0xFF35E6A5),
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.6,
-            ),
+        const Text(
+          'CURRENT STATUS',
+          style: TextStyle(
+            color: Color(0xFF35E6A5),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.6,
           ),
-          const SizedBox(height: 18),
-        ],
+        ),
+        const SizedBox(height: 18),
         Row(
           children: [
             Container(
@@ -546,7 +542,6 @@ class _LocationDetails extends StatelessWidget {
       ],
     );
 
-    if (compact) return content;
     return SingleChildScrollView(
       child: Card(
         child: Padding(padding: const EdgeInsets.all(20), child: content),
