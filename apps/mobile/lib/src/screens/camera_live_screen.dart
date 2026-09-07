@@ -32,6 +32,7 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   Future<List<Recording>>? _recordings;
   VideoPlayerController? _recordingController;
   bool _showHistory = false;
+  DateTime _historyDate = DateTime.now();
 
   @override
   void initState() {
@@ -72,13 +73,34 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   }
 
   void _loadHistory() {
+    final start = DateTime(
+      _historyDate.year,
+      _historyDate.month,
+      _historyDate.day,
+    );
     setState(() {
       _showHistory = true;
       _recordings = widget.apiClient.getRecordings(
         truckId: widget.truckId,
         cameraId: widget.cameraId,
+        start: start,
+        end: start.add(const Duration(days: 1)),
       );
     });
+  }
+
+  Future<void> _selectHistoryDate() async {
+    final today = DateTime.now();
+    final lastDate = DateTime(today.year, today.month, today.day);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _historyDate,
+      firstDate: lastDate.subtract(const Duration(days: 6)),
+      lastDate: lastDate,
+    );
+    if (selected == null || !mounted) return;
+    _historyDate = selected;
+    _loadHistory();
   }
 
   void _goBack() {
@@ -195,6 +217,24 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      if (_showHistory) ...[
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _selectHistoryDate,
+                              icon: const Icon(Icons.calendar_month),
+                              label: Text(
+                                '${_historyDate.year}/${_historyDate.month.toString().padLeft(2, '0')}/${_historyDate.day.toString().padLeft(2, '0')}',
+                              ),
+                            ),
+                            const Text('錄影保存 7 天，每段 30 分鐘'),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       AspectRatio(
                         aspectRatio: 16 / 9,
                         child: ClipRRect(
@@ -318,14 +358,31 @@ class _RecordingList extends StatelessWidget {
                 onPressed: () => onPlay(recording),
                 icon: const Icon(Icons.play_arrow),
                 label: Text(
-                  '${recording.start.toLocal()} · '
-                  '${recording.durationSeconds.round()} 秒',
+                  '${_formatRecordingTime(recording)} · '
+                  '${_formatDuration(recording.durationSeconds)}',
                 ),
               ),
           ],
         );
       },
     );
+  }
+
+  String _formatRecordingTime(Recording recording) {
+    final local = recording.start.toLocal();
+    final end = local.add(Duration(seconds: recording.durationSeconds.round()));
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${two(local.hour)}:${two(local.minute)}–'
+        '${two(end.hour)}:${two(end.minute)}';
+  }
+
+  String _formatDuration(double seconds) {
+    final duration = Duration(seconds: seconds.round());
+    final minutes = duration.inMinutes;
+    final remainingSeconds = duration.inSeconds.remainder(60);
+    return remainingSeconds == 0
+        ? '$minutes 分鐘'
+        : '$minutes 分 ${remainingSeconds.toString().padLeft(2, '0')} 秒';
   }
 }
 
