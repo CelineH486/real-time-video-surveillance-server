@@ -101,6 +101,31 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
     });
   }
 
+  Future<void> _selectHistoryDate() async {
+    final today = DateTime.now();
+    final lastDate = DateTime(today.year, today.month, today.day);
+    final firstDate = lastDate.subtract(const Duration(days: 7));
+    final initialDate = _historyDate.isBefore(firstDate)
+        ? firstDate
+        : _historyDate.isAfter(lastDate)
+        ? lastDate
+        : _historyDate;
+    final selected = await showDatePicker(
+      context: context,
+      locale: const Locale('zh', 'TW'),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      initialEntryMode: DatePickerEntryMode.calendarOnly,
+      helpText: '選擇錄影日期',
+      cancelText: '取消',
+      confirmText: '確定',
+    );
+    if (selected == null || !mounted) return;
+    _historyDate = selected;
+    _loadHistory();
+  }
+
   void _goBack() {
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
@@ -221,7 +246,14 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                           runSpacing: 8,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            Text('${_historyDate.year} 年 · 錄影保存最近 7 天'),
+                            OutlinedButton.icon(
+                              onPressed: _selectHistoryDate,
+                              icon: const Icon(Icons.calendar_month),
+                              label: Text(
+                                '${_historyDate.year}/${_historyDate.month.toString().padLeft(2, '0')}/${_historyDate.day.toString().padLeft(2, '0')}',
+                              ),
+                            ),
+                            const Text('僅可選擇最近 7 天'),
                             TextButton.icon(
                               onPressed: _loadHistory,
                               icon: const Icon(Icons.refresh),
@@ -229,15 +261,6 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                             ),
                           ],
                         ),
-                        _HistoryDates(
-                          selected: _historyDate,
-                          onSelect: (date) {
-                            _historyDate = date;
-                            _loadHistory();
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                        const Text('最早一天僅提供最近 7 天內的時段。依整點／半點分組，實際錄影範圍列於下方。'),
                         const SizedBox(height: 12),
                       ],
                       AspectRatio(
@@ -362,47 +385,44 @@ class _RecordingList extends StatelessWidget {
           children: [
             for (final recording in rows)
               SizedBox(
-                width: 220,
-                height: 104,
+                width: 270,
+                height: 58,
                 child: OutlinedButton(
                   style: OutlinedButton.styleFrom(
                     alignment: Alignment.centerLeft,
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                   onPressed: () => onPlay(recording),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(Icons.play_arrow, size: 20),
-                      ),
+                      const Icon(Icons.play_arrow, size: 20),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        child: Row(
                           children: [
-                            Text(
-                              _formatSlot(recording),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                            Expanded(
+                              child: Text(
+                                _formatSlot(recording),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 4),
                             Text(
                               _formatDuration(recording.durationSeconds),
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
-                            Text(
-                              _formatRecordingStatus(recording),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
+                            if (!_isComplete(recording)) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '部分',
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -416,16 +436,10 @@ class _RecordingList extends StatelessWidget {
     );
   }
 
-  String _formatRecordingStatus(Recording recording) {
+  bool _isComplete(Recording recording) {
     final local = recording.start.toLocal();
-    final end = local.add(Duration(seconds: recording.durationSeconds.round()));
     final startsOnBoundary = local.minute % 30 == 0 && local.second == 0;
-    final isComplete = startsOnBoundary && recording.durationSeconds >= 1799;
-    if (isComplete) return '● 完整錄影';
-    String clock(DateTime date) =>
-        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    if (!startsOnBoundary) return '${clock(local)} 開始 · 部分錄影';
-    return '錄影至 ${clock(end)} · 部分錄影';
+    return startsOnBoundary && recording.durationSeconds >= 1799;
   }
 
   String _formatSlot(Recording recording) {
@@ -446,73 +460,8 @@ class _RecordingList extends StatelessWidget {
   String _formatDuration(double seconds) {
     final duration = Duration(seconds: seconds.round());
     final minutes = duration.inMinutes;
-    final remainingSeconds = duration.inSeconds.remainder(60);
-    return remainingSeconds == 0
-        ? '$minutes 分鐘'
-        : '$minutes 分 ${remainingSeconds.toString().padLeft(2, '0')} 秒';
-  }
-}
-
-class _HistoryDates extends StatelessWidget {
-  const _HistoryDates({required this.selected, required this.onSelect});
-
-  final DateTime selected;
-  final ValueChanged<DateTime> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
-    // A rolling 168-hour retention window can overlap eight calendar dates.
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (var offset = 0; offset <= 7; offset++)
-          Builder(
-            builder: (context) {
-              final date = DateTime(now.year, now.month, now.day - offset);
-              final active = DateUtils.isSameDay(date, selected);
-              return SizedBox(
-                width: 104,
-                child: Semantics(
-                  selected: active,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: active
-                          ? Theme.of(context).colorScheme.secondaryContainer
-                          : null,
-                      foregroundColor: active
-                          ? Theme.of(context).colorScheme.onSecondaryContainer
-                          : null,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 4,
-                      ),
-                    ),
-                    onPressed: () => onSelect(date),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(weekdays[date.weekday - 1]),
-                        Text('${date.month} 月 ${date.day} 日'),
-                        Text(
-                          offset == 0
-                              ? '今天'
-                              : offset == 7
-                              ? '部分時段'
-                              : '$offset 天前',
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-      ],
-    );
+    if (minutes > 0) return '$minutes 分';
+    return '${duration.inSeconds} 秒';
   }
 }
 
