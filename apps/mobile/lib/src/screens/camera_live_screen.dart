@@ -361,22 +361,50 @@ class _RecordingList extends StatelessWidget {
           runSpacing: 10,
           children: [
             for (final recording in rows)
-              OutlinedButton.icon(
-                onPressed: () => onPlay(recording),
-                icon: const Icon(Icons.play_arrow),
-                label: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Column(
+              SizedBox(
+                width: 220,
+                height: 104,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.all(14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () => onPlay(recording),
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_formatSlot(recording)),
-                      Text(
-                        '可播放 ${_formatRecordingTime(recording)}',
-                        style: Theme.of(context).textTheme.bodySmall,
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
+                        child: Icon(Icons.play_arrow, size: 20),
                       ),
-                      Text(
-                        _formatDuration(recording.durationSeconds),
-                        style: Theme.of(context).textTheme.bodySmall,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _formatSlot(recording),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _formatDuration(recording.durationSeconds),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            Text(
+                              _formatRecordingStatus(recording),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -388,12 +416,16 @@ class _RecordingList extends StatelessWidget {
     );
   }
 
-  String _formatRecordingTime(Recording recording) {
+  String _formatRecordingStatus(Recording recording) {
     final local = recording.start.toLocal();
     final end = local.add(Duration(seconds: recording.durationSeconds.round()));
-    String two(int number) => number.toString().padLeft(2, '0');
-    return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}–'
-        '${two(end.hour)}:${two(end.minute)}:${two(end.second)}';
+    final startsOnBoundary = local.minute % 30 == 0 && local.second == 0;
+    final isComplete = startsOnBoundary && recording.durationSeconds >= 1799;
+    if (isComplete) return '● 完整錄影';
+    String clock(DateTime date) =>
+        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    if (!startsOnBoundary) return '${clock(local)} 開始 · 部分錄影';
+    return '錄影至 ${clock(end)} · 部分錄影';
   }
 
   String _formatSlot(Recording recording) {
