@@ -73,34 +73,32 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   }
 
   void _loadHistory() {
+    final now = DateTime.now();
+    final cutoff = now.subtract(const Duration(days: 7));
+    if (_historyDate.isBefore(
+          DateTime(cutoff.year, cutoff.month, cutoff.day),
+        ) ||
+        _historyDate.isAfter(now)) {
+      _historyDate = now;
+    }
     final start = DateTime(
       _historyDate.year,
       _historyDate.month,
       _historyDate.day,
     );
+    final nextDay = DateTime(start.year, start.month, start.day + 1);
+    final previous = _recordingController;
+    _recordingController = null;
+    if (previous != null) unawaited(previous.dispose());
     setState(() {
       _showHistory = true;
       _recordings = widget.apiClient.getRecordings(
         truckId: widget.truckId,
         cameraId: widget.cameraId,
-        start: start,
-        end: start.add(const Duration(days: 1)),
+        start: start.isBefore(cutoff) ? cutoff : start,
+        end: nextDay.isAfter(now) ? now : nextDay,
       );
     });
-  }
-
-  Future<void> _selectHistoryDate() async {
-    final today = DateTime.now();
-    final lastDate = DateTime(today.year, today.month, today.day);
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: _historyDate,
-      firstDate: lastDate.subtract(const Duration(days: 6)),
-      lastDate: lastDate,
-    );
-    if (selected == null || !mounted) return;
-    _historyDate = selected;
-    _loadHistory();
   }
 
   void _goBack() {
@@ -223,16 +221,23 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                           runSpacing: 8,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            OutlinedButton.icon(
-                              onPressed: _selectHistoryDate,
-                              icon: const Icon(Icons.calendar_month),
-                              label: Text(
-                                '${_historyDate.year}/${_historyDate.month.toString().padLeft(2, '0')}/${_historyDate.day.toString().padLeft(2, '0')}',
-                              ),
+                            Text('${_historyDate.year} 年 · 錄影保存最近 7 天'),
+                            TextButton.icon(
+                              onPressed: _loadHistory,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重新整理'),
                             ),
-                            const Text('錄影保存 7 天，每段 30 分鐘'),
                           ],
                         ),
+                        _HistoryDates(
+                          selected: _historyDate,
+                          onSelect: (date) {
+                            _historyDate = date;
+                            _loadHistory();
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        const Text('最早一天僅提供最近 7 天內的時段。依整點／半點分組，實際錄影範圍列於下方。'),
                         const SizedBox(height: 12),
                       ],
                       AspectRatio(
@@ -347,7 +352,9 @@ class _RecordingList extends StatelessWidget {
         if (snapshot.hasError) {
           return Text('讀取歷史錄影失敗：${snapshot.error}');
         }
-        final rows = snapshot.data ?? const [];
+        final rows = (snapshot.data ?? const <Recording>[])
+            .expand((recording) => recording.halfHourSegments())
+            .toList();
         if (rows.isEmpty) return const Text('尚無歷史錄影');
         return Wrap(
           spacing: 10,
@@ -357,9 +364,22 @@ class _RecordingList extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => onPlay(recording),
                 icon: const Icon(Icons.play_arrow),
-                label: Text(
-                  '${_formatRecordingTime(recording)} · '
-                  '${_formatDuration(recording.durationSeconds)}',
+                label: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_formatSlot(recording)),
+                      Text(
+                        '可播放 ${_formatRecordingTime(recording)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        _formatDuration(recording.durationSeconds),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],
@@ -372,8 +392,23 @@ class _RecordingList extends StatelessWidget {
     final local = recording.start.toLocal();
     final end = local.add(Duration(seconds: recording.durationSeconds.round()));
     String two(int number) => number.toString().padLeft(2, '0');
-    return '${two(local.hour)}:${two(local.minute)}–'
-        '${two(end.hour)}:${two(end.minute)}';
+    return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}–'
+        '${two(end.hour)}:${two(end.minute)}:${two(end.second)}';
+  }
+
+  String _formatSlot(Recording recording) {
+    final local = recording.start.toLocal();
+    final slot = DateTime(
+      local.year,
+      local.month,
+      local.day,
+      local.hour,
+      local.minute < 30 ? 0 : 30,
+    );
+    final end = slot.add(const Duration(minutes: 30));
+    String clock(DateTime date) =>
+        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    return '${clock(slot)}–${clock(end)}';
   }
 
   String _formatDuration(double seconds) {
@@ -383,6 +418,69 @@ class _RecordingList extends StatelessWidget {
     return remainingSeconds == 0
         ? '$minutes 分鐘'
         : '$minutes 分 ${remainingSeconds.toString().padLeft(2, '0')} 秒';
+  }
+}
+
+class _HistoryDates extends StatelessWidget {
+  const _HistoryDates({required this.selected, required this.onSelect});
+
+  final DateTime selected;
+  final ValueChanged<DateTime> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    // A rolling 168-hour retention window can overlap eight calendar dates.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (var offset = 0; offset <= 7; offset++)
+          Builder(
+            builder: (context) {
+              final date = DateTime(now.year, now.month, now.day - offset);
+              final active = DateUtils.isSameDay(date, selected);
+              return SizedBox(
+                width: 104,
+                child: Semantics(
+                  selected: active,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: active
+                          ? Theme.of(context).colorScheme.secondaryContainer
+                          : null,
+                      foregroundColor: active
+                          ? Theme.of(context).colorScheme.onSecondaryContainer
+                          : null,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 4,
+                      ),
+                    ),
+                    onPressed: () => onSelect(date),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(weekdays[date.weekday - 1]),
+                        Text('${date.month} 月 ${date.day} 日'),
+                        Text(
+                          offset == 0
+                              ? '今天'
+                              : offset == 7
+                              ? '部分時段'
+                              : '$offset 天前',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
   }
 }
 
