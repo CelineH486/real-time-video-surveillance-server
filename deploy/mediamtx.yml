@@ -37,11 +37,15 @@ pathDefaults:
   source: publisher
   overridePublisher: false
   record: false
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordSegmentDuration: 30m
+  recordDeleteAfter: 7d
 
 paths:
-  # Local HTTPS/dashboard tests should not create recording files.
+  # Store only the high-quality stream. Sub-streams remain live-view only.
   "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/main$":
-    record: false
+    record: true
 
   "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/sub$":
     record: false

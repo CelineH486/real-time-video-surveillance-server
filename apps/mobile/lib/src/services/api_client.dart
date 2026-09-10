@@ -125,9 +125,14 @@ class ApiClient {
   Future<List<Recording>> getRecordings({
     required String truckId,
     required String cameraId,
+    DateTime? start,
+    DateTime? end,
   }) async {
+    final query = <String, String>{'cameraId': cameraId};
+    if (start != null) query['start'] = start.toUtc().toIso8601String();
+    if (end != null) query['end'] = end.toUtc().toIso8601String();
     final response = await http.get(
-      _uri('/api/trucks/$truckId/recordings', {'cameraId': cameraId}),
+      _uri('/api/trucks/$truckId/recordings', query),
       headers: _headers,
     );
     _ensureSuccess(response);
