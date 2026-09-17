@@ -43,6 +43,28 @@ func TestRecordingOpenBuildsMediaMTXRequest(t *testing.T) {
 	}
 }
 
+func TestRecordingListRequestsPhysicalSegments(t *testing.T) {
+	var received *http.Request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		received = request
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"start":"2026-09-16T03:24:00Z","duration":1800}]`))
+	}))
+	defer server.Close()
+
+	service := services.NewRecordingService(server.URL, "http://localhost:8080", testStreamService())
+	rows, err := service.List(context.Background(), "truck001", "cam01", "", "")
+	if err != nil {
+		t.Fatalf("List returned an error: %v", err)
+	}
+	if received == nil || received.URL.Query().Get("segments") != "true" {
+		t.Fatalf("physical segments were not requested: %v", received)
+	}
+	if len(rows) != 1 || !rows[0].Start.Equal(time.Date(2026, 9, 16, 3, 24, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected recording rows: %#v", rows)
+	}
+}
+
 func TestRecordingPublicURL(t *testing.T) {
 	service := services.NewRecordingService("http://localhost:9996", "http://localhost:8080", testStreamService())
 	start := time.Date(2026, time.June, 22, 12, 30, 0, 0, time.UTC)

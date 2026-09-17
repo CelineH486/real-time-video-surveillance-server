@@ -43,6 +43,9 @@ func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, e
 	expires := time.Now().Add(5 * time.Minute)
 	token := s.streams.SignAccess(truckID, cameraID, "main", expires)
 	query := url.Values{"path": {strings.Join([]string{truckID, cameraID, "main"}, "/")}}
+	// Our pinned MediaMTX build exposes physical segments instead of merging
+	// adjacent files. Keep the recorder's true start time after every reconnect.
+	query.Set("segments", "true")
 	for name, value := range map[string]string{"start": start, "end": end} {
 		if value == "" {
 			continue
