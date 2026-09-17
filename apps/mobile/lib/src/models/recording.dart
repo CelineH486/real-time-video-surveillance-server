@@ -9,52 +9,29 @@ class Recording {
   final double durationSeconds;
   final String url;
 
-  /// Split a continuous playable span at local clock half-hour boundaries.
-  /// Preserve gaps by splitting each source span independently.
-  List<Recording> halfHourSegments() {
-    if (!durationSeconds.isFinite || durationSeconds <= 0) return [];
-    var cursor = start.toLocal();
-    final end = cursor.add(
-      Duration(
-        microseconds: (durationSeconds * Duration.microsecondsPerSecond)
-            .round(),
-      ),
-    );
-    final result = <Recording>[];
-    while (cursor.isBefore(end)) {
-      final boundary = cursor
-          .subtract(
-            Duration(
-              minutes: cursor.minute % 30,
-              seconds: cursor.second,
-              milliseconds: cursor.millisecond,
-              microseconds: cursor.microsecond,
-            ),
-          )
-          .add(const Duration(minutes: 30));
-      final stop = boundary.isBefore(end) ? boundary : end;
-      final seconds =
-          stop.difference(cursor).inMicroseconds /
-          Duration.microsecondsPerSecond;
-      final uri = Uri.parse(url);
-      result.add(
-        Recording(
-          start: cursor,
-          durationSeconds: seconds,
-          url: uri
-              .replace(
-                queryParameters: {
-                  ...uri.queryParameters,
-                  'start': cursor.toUtc().toIso8601String(),
-                  'duration': seconds.toString(),
-                },
-              )
-              .toString(),
+  // UTC+8 is explicit: viewing from another timezone must not move midnight.
+  DateTime get taiwanStart => start.toUtc().add(const Duration(hours: 8));
+  DateTime get taiwanEnd => taiwanStart.add(
+        Duration(
+          microseconds:
+              (durationSeconds * Duration.microsecondsPerSecond).round(),
         ),
       );
-      cursor = stop;
-    }
-    return result;
+
+  bool get isComplete => durationSeconds >= 1799 ||
+      (taiwanEnd.day != taiwanStart.day &&
+          taiwanEnd.hour == 0 &&
+          taiwanEnd.minute == 0);
+
+  String get timeLabel {
+    String clock(DateTime value) =>
+        '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+    final end = taiwanEnd;
+    final endLabel =
+        end.day != taiwanStart.day && end.hour == 0 && end.minute == 0
+        ? '24:00'
+        : clock(end);
+    return '${clock(taiwanStart)}–$endLabel';
   }
 
   factory Recording.fromJson(Map<String, dynamic> json) {

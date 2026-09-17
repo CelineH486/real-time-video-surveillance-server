@@ -1,12 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
 import '../models/camera.dart';
 import '../models/recording.dart';
 import '../models/stream_session.dart';
 import '../services/api_client.dart';
+import '../widgets/recording_player.dart';
 import '../widgets/whep_video_player.dart';
 
 class CameraLiveScreen extends StatefulWidget {
@@ -30,7 +28,7 @@ class CameraLiveScreen extends StatefulWidget {
 class _CameraLiveScreenState extends State<CameraLiveScreen> {
   late Future<_LiveViewData> _data;
   Future<List<Recording>>? _recordings;
-  VideoPlayerController? _recordingController;
+  Recording? _selectedRecording;
   bool _showHistory = false;
   DateTime _historyDate = DateTime.now();
 
@@ -38,13 +36,6 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   void initState() {
     super.initState();
     _data = _load();
-  }
-
-  @override
-  void dispose() {
-    final controller = _recordingController;
-    if (controller != null) unawaited(controller.dispose());
-    super.dispose();
   }
 
   Future<_LiveViewData> _load() async {
@@ -72,6 +63,13 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
     });
   }
 
+  void _handleLiveAuthenticationExpired() {
+    // A WHEP request can finish after the user has switched to history.
+    // Ignore that stale live-player callback instead of changing their mode.
+    if (!mounted || _showHistory) return;
+    _reloadLive();
+  }
+
   void _loadHistory() {
     final now = DateTime.now();
     final cutoff = now.subtract(const Duration(days: 7));
@@ -87,9 +85,7 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
       _historyDate.day,
     );
     final nextDay = DateTime(start.year, start.month, start.day + 1);
-    final previous = _recordingController;
-    _recordingController = null;
-    if (previous != null) unawaited(previous.dispose());
+    _selectedRecording = null;
     setState(() {
       _showHistory = true;
       _recordings = widget.apiClient.getRecordings(
@@ -135,23 +131,9 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
     navigator.pushReplacementNamed('/trucks/${widget.truckId}/cameras');
   }
 
-  Future<void> _playRecording(Recording recording) async {
-    final previous = _recordingController;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(recording.url),
-    );
-    setState(() => _recordingController = controller);
-    await previous?.dispose();
-    try {
-      await controller.initialize();
-      await controller.play();
-      if (mounted) setState(() {});
-    } catch (_) {
-      await controller.dispose();
-      if (mounted && identical(_recordingController, controller)) {
-        setState(() => _recordingController = null);
-      }
-    }
+  Future<void> _playRecording(Recording recording) {
+    setState(() => _selectedRecording = recording);
+    return Future.value();
   }
 
   @override
@@ -268,14 +250,15 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: _showHistory
-                              ? _RecordingStage(
-                                  controller: _recordingController,
+                              ? RecordingPlayer(
+                                  url: _selectedRecording?.url,
                                 )
                               : WhepVideoPlayer(
                                   url: data.session.url,
                                   token: data.session.accessToken,
                                   muted: true,
-                                  onAuthenticationExpired: _reloadLive,
+                                  onAuthenticationExpired:
+                                      _handleLiveAuthenticationExpired,
                                 ),
                         ),
                       ),
@@ -306,58 +289,6 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   }
 }
 
-class _RecordingStage extends StatelessWidget {
-  const _RecordingStage({required this.controller});
-
-  final VideoPlayerController? controller;
-
-  @override
-  Widget build(BuildContext context) {
-    if (controller == null || !controller!.value.isInitialized) {
-      return const ColoredBox(
-        color: Colors.black,
-        child: Center(
-          child: Text('請選擇一段歷史錄影', style: TextStyle(color: Colors.white54)),
-        ),
-      );
-    }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: controller!.value.aspectRatio,
-              child: VideoPlayer(controller!),
-            ),
-          ),
-        ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: VideoProgressIndicator(
-            controller!,
-            allowScrubbing: true,
-            padding: const EdgeInsets.all(12),
-          ),
-        ),
-        Center(
-          child: IconButton.filledTonal(
-            onPressed: () {
-              controller!.value.isPlaying
-                  ? controller!.pause()
-                  : controller!.play();
-            },
-            icon: Icon(
-              controller!.value.isPlaying ? Icons.pause : Icons.play_arrow,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _RecordingList extends StatelessWidget {
   const _RecordingList({required this.recordings, required this.onPlay});
 
@@ -375,9 +306,7 @@ class _RecordingList extends StatelessWidget {
         if (snapshot.hasError) {
           return Text('讀取歷史錄影失敗：${snapshot.error}');
         }
-        final rows = (snapshot.data ?? const <Recording>[])
-            .expand((recording) => recording.halfHourSegments())
-            .toList();
+        final rows = (snapshot.data ?? const <Recording>[]).toList();
         if (rows.isEmpty) return const Text('尚無歷史錄影');
         return Wrap(
           spacing: 10,
@@ -437,25 +366,10 @@ class _RecordingList extends StatelessWidget {
   }
 
   bool _isComplete(Recording recording) {
-    final local = recording.start.toLocal();
-    final startsOnBoundary = local.minute % 30 == 0 && local.second == 0;
-    return startsOnBoundary && recording.durationSeconds >= 1799;
+    return recording.isComplete;
   }
 
-  String _formatSlot(Recording recording) {
-    final local = recording.start.toLocal();
-    final slot = DateTime(
-      local.year,
-      local.month,
-      local.day,
-      local.hour,
-      local.minute < 30 ? 0 : 30,
-    );
-    final end = slot.add(const Duration(minutes: 30));
-    String clock(DateTime date) =>
-        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    return '${clock(slot)}–${clock(end)}';
-  }
+  String _formatSlot(Recording recording) => recording.timeLabel;
 
   String _formatDuration(double seconds) {
     final duration = Duration(seconds: seconds.round());

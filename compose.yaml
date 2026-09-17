@@ -40,7 +40,8 @@ services:
       CAMERA_OFFLINE_TIMEOUT: ${CAMERA_OFFLINE_TIMEOUT:-15s}
 
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    build: ./deploy/mediamtx
+    image: surveillance-mediamtx:1.19.3-taiwan
     restart: unless-stopped
     environment:
       MTX_AUTHHTTPADDRESS: http://api:8080/internal/mediamtx/auth

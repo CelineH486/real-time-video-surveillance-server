@@ -40,6 +40,8 @@ pathDefaults:
   recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordFormat: fmp4
   recordSegmentDuration: 30m
+  # The pinned build also rotates at Taiwan midnight, on the next keyframe.
+  # Half-hour deadlines start at stream start and reset at midnight.
   recordDeleteAfter: 7d
 
 paths:
