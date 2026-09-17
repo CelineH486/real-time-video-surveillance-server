@@ -63,7 +63,9 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
         future: _ready,
         builder: (context, snapshot) {
           if (_ready == null) {
-            return const Center(child: Text('請選擇一段歷史錄影', style: TextStyle(color: Colors.white54)));
+            return const Center(
+              child: Text('請選擇一段歷史錄影', style: TextStyle(color: Colors.white54)),
+            );
           }
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(
@@ -82,8 +84,14 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('影片載入失敗，請重試或重新整理錄影清單', style: TextStyle(color: Colors.white)),
-                  TextButton(onPressed: () => setState(_select), child: const Text('重試')),
+                  const Text(
+                    '影片載入失敗，請重試或重新整理錄影清單',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(_select),
+                    child: const Text('重試'),
+                  ),
                 ],
               ),
             );
@@ -94,17 +102,30 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
             builder: (context, value, child) => Stack(
               fit: StackFit.expand,
               children: [
-                Center(child: AspectRatio(aspectRatio: value.aspectRatio, child: VideoPlayer(controller))),
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: value.aspectRatio,
+                    child: VideoPlayer(controller),
+                  ),
+                ),
                 Align(
                   alignment: Alignment.bottomCenter,
-                  child: VideoProgressIndicator(controller, allowScrubbing: true, padding: const EdgeInsets.all(12)),
+                  child: VideoProgressIndicator(
+                    controller,
+                    allowScrubbing: true,
+                    padding: const EdgeInsets.all(12),
+                  ),
                 ),
                 Center(
                   child: value.isBuffering
                       ? const CircularProgressIndicator()
                       : IconButton.filledTonal(
-                          onPressed: () => value.isPlaying ? controller.pause() : controller.play(),
-                          icon: Icon(value.isPlaying ? Icons.pause : Icons.play_arrow),
+                          onPressed: () => value.isPlaying
+                              ? controller.pause()
+                              : controller.play(),
+                          icon: Icon(
+                            value.isPlaying ? Icons.pause : Icons.play_arrow,
+                          ),
                         ),
                 ),
               ],

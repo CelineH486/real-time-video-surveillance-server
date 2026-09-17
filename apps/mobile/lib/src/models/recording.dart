@@ -12,13 +12,13 @@ class Recording {
   // UTC+8 is explicit: viewing from another timezone must not move midnight.
   DateTime get taiwanStart => start.toUtc().add(const Duration(hours: 8));
   DateTime get taiwanEnd => taiwanStart.add(
-        Duration(
-          microseconds:
-              (durationSeconds * Duration.microsecondsPerSecond).round(),
-        ),
-      );
+    Duration(
+      microseconds: (durationSeconds * Duration.microsecondsPerSecond).round(),
+    ),
+  );
 
-  bool get isComplete => durationSeconds >= 1799 ||
+  bool get isComplete =>
+      durationSeconds >= 1799 ||
       (taiwanEnd.day != taiwanStart.day &&
           taiwanEnd.hour == 0 &&
           taiwanEnd.minute == 0);

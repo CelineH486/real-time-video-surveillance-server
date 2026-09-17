@@ -250,9 +250,7 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: _showHistory
-                              ? RecordingPlayer(
-                                  url: _selectedRecording?.url,
-                                )
+                              ? RecordingPlayer(url: _selectedRecording?.url)
                               : WhepVideoPlayer(
                                   url: data.session.url,
                                   token: data.session.accessToken,
