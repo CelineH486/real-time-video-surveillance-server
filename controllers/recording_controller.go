@@ -100,7 +100,7 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingDuration, apiresponse.MessageQueryDurationRange)
 		return
 	}
-	response, err := c.recordings.Open(r.Context(), truckID, cameraID, start, duration, token)
+	response, err := c.recordings.Open(r.Context(), truckID, cameraID, start, duration, token, r.Header.Get("Range"))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingOpenUnavailable)
 		return
@@ -110,8 +110,13 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceRejected, apiresponse.MessageRecordingServiceRejected)
 		return
 	}
-	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
+	for _, name := range []string{"Accept-Ranges", "Content-Length", "Content-Range", "Content-Type"} {
+		if value := response.Header.Get(name); value != "" {
+			w.Header().Set(name, value)
+		}
+	}
 	w.Header().Set("Cache-Control", "private, no-store")
+	w.WriteHeader(response.StatusCode)
 	if _, err := io.Copy(w, response.Body); err != nil {
 		log.Printf("stream recording response: %v", err)
 	}
