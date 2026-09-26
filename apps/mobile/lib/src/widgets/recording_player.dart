@@ -3,11 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../models/recording.dart';
+
 /// Owns one playback request. The future is created on selection, never in build.
 class RecordingPlayer extends StatefulWidget {
-  const RecordingPlayer({super.key, required this.url});
+  const RecordingPlayer({
+    super.key,
+    required this.recording,
+    required this.loadUrl,
+  });
 
-  final String? url;
+  final Recording? recording;
+  final Future<String> Function()? loadUrl;
 
   @override
   State<RecordingPlayer> createState() => _RecordingPlayerState();
@@ -16,6 +23,7 @@ class RecordingPlayer extends StatefulWidget {
 class _RecordingPlayerState extends State<RecordingPlayer> {
   VideoPlayerController? _controller;
   Future<void>? _ready;
+  int _selectionId = 0;
 
   @override
   void initState() {
@@ -26,18 +34,33 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   @override
   void didUpdateWidget(RecordingPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) _select();
+    if (oldWidget.recording?.start != widget.recording?.start ||
+        oldWidget.recording?.durationSeconds !=
+            widget.recording?.durationSeconds) {
+      _select();
+    }
   }
 
   void _select() {
+    final selectionId = ++_selectionId;
     final previous = _controller;
     _controller = null;
     _ready = null;
     if (previous != null) unawaited(previous.dispose());
-    if (widget.url == null) return;
-    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url!));
+    final loadUrl = widget.loadUrl;
+    if (widget.recording == null || loadUrl == null) return;
+    _ready = _loadAndInitialize(loadUrl, selectionId);
+  }
+
+  Future<void> _loadAndInitialize(
+    Future<String> Function() loadUrl,
+    int selectionId,
+  ) async {
+    final url = await loadUrl();
+    if (!mounted || selectionId != _selectionId) return;
+    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
-    _ready = _initialize(controller);
+    await _initialize(controller);
   }
 
   Future<void> _initialize(VideoPlayerController controller) async {
@@ -49,6 +72,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
 
   @override
   void dispose() {
+    _selectionId++;
     final controller = _controller;
     _controller = null;
     if (controller != null) unawaited(controller.dispose());

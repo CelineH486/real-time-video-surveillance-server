@@ -143,6 +143,28 @@ class ApiClient {
         .toList(growable: false);
   }
 
+  Future<String> createRecordingPlaySession({
+    required String truckId,
+    required String cameraId,
+    required Recording recording,
+  }) async {
+    final response = await http.post(
+      _uri('/api/trucks/$truckId/cameras/$cameraId/recordings/play'),
+      headers: {..._headers, 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'start': recording.start.toUtc().toIso8601String(),
+        'durationSeconds': recording.durationSeconds,
+      }),
+    );
+    _ensureSuccess(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final url = body['url'] as String? ?? '';
+    if (url.isEmpty) {
+      throw const ApiException(statusCode: 500, message: '播放回應缺少 URL');
+    }
+    return url;
+  }
+
   void _ensureSuccess(
     http.Response response, {
     bool notifyUnauthorized = true,

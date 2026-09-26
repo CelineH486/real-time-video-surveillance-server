@@ -4,6 +4,7 @@ import '../models/camera.dart';
 import '../models/recording.dart';
 import '../models/stream_session.dart';
 import '../services/api_client.dart';
+import '../utils/taiwan_time.dart';
 import '../widgets/recording_player.dart';
 import '../widgets/whep_video_player.dart';
 
@@ -30,7 +31,7 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   Future<List<Recording>>? _recordings;
   Recording? _selectedRecording;
   bool _showHistory = false;
-  DateTime _historyDate = DateTime.now();
+  DateTime _historyDate = taiwanCalendarDate(DateTime.now());
 
   @override
   void initState() {
@@ -71,35 +72,31 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   }
 
   void _loadHistory() {
-    final now = DateTime.now();
-    final cutoff = now.subtract(const Duration(days: 7));
-    if (_historyDate.isBefore(
-          DateTime(cutoff.year, cutoff.month, cutoff.day),
-        ) ||
-        _historyDate.isAfter(now)) {
-      _historyDate = now;
+    final nowUtc = DateTime.now().toUtc();
+    final cutoffUtc = nowUtc.subtract(const Duration(days: 7));
+    final firstDate = taiwanCalendarDate(cutoffUtc);
+    final lastDate = taiwanCalendarDate(nowUtc);
+    if (_historyDate.isBefore(firstDate) || _historyDate.isAfter(lastDate)) {
+      _historyDate = lastDate;
     }
-    final start = DateTime(
-      _historyDate.year,
-      _historyDate.month,
-      _historyDate.day,
+    final dayStartUtc = taiwanDayStartUtc(_historyDate);
+    final nextDayUtc = taiwanDayStartUtc(
+      DateTime(_historyDate.year, _historyDate.month, _historyDate.day + 1),
     );
-    final nextDay = DateTime(start.year, start.month, start.day + 1);
     _selectedRecording = null;
     setState(() {
       _showHistory = true;
       _recordings = widget.apiClient.getRecordings(
         truckId: widget.truckId,
         cameraId: widget.cameraId,
-        start: start.isBefore(cutoff) ? cutoff : start,
-        end: nextDay.isAfter(now) ? now : nextDay,
+        start: dayStartUtc.isBefore(cutoffUtc) ? cutoffUtc : dayStartUtc,
+        end: nextDayUtc.isAfter(nowUtc) ? nowUtc : nextDayUtc,
       );
     });
   }
 
   Future<void> _selectHistoryDate() async {
-    final today = DateTime.now();
-    final lastDate = DateTime(today.year, today.month, today.day);
+    final lastDate = taiwanCalendarDate(DateTime.now());
     final firstDate = lastDate.subtract(const Duration(days: 7));
     final initialDate = _historyDate.isBefore(firstDate)
         ? firstDate
@@ -250,7 +247,17 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: _showHistory
-                              ? RecordingPlayer(url: _selectedRecording?.url)
+                              ? RecordingPlayer(
+                                  recording: _selectedRecording,
+                                  loadUrl: _selectedRecording == null
+                                      ? null
+                                      : () => widget.apiClient
+                                            .createRecordingPlaySession(
+                                              truckId: widget.truckId,
+                                              cameraId: widget.cameraId,
+                                              recording: _selectedRecording!,
+                                            ),
+                                )
                               : WhepVideoPlayer(
                                   url: data.session.url,
                                   token: data.session.accessToken,

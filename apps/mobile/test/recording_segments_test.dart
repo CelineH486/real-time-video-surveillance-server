@@ -6,7 +6,6 @@ void main() {
     final recording = Recording(
       start: DateTime.parse('2026-09-16T03:24:00Z'),
       durationSeconds: 1800,
-      url: 'https://example.com/content',
     );
 
     expect(recording.timeLabel, '11:24–11:54');
@@ -17,7 +16,6 @@ void main() {
     final recording = Recording(
       start: DateTime.parse('2026-09-16T15:44:00Z'),
       durationSeconds: 16 * 60 + 1,
-      url: 'https://example.com/content',
     );
 
     expect(recording.timeLabel, '23:44–24:00');
@@ -28,7 +26,6 @@ void main() {
     final recording = Recording(
       start: DateTime.parse('2026-09-16T03:24:00Z'),
       durationSeconds: 95,
-      url: 'https://example.com/content',
     );
 
     expect(recording.timeLabel, '11:24–11:25');
