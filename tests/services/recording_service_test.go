@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,19 +17,18 @@ func TestRecordingOpenBuildsMediaMTXRequest(t *testing.T) {
 	var received *http.Request
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		received = request
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Range", "bytes 100-199/1000")
-		w.WriteHeader(http.StatusPartialContent)
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("complete mp4"))
 	}))
 	defer server.Close()
 
 	service := services.NewRecordingService(server.URL, "http://localhost:8080", testStreamService())
 	start := time.Date(2026, time.June, 22, 12, 30, 0, 123456000, time.FixedZone("UTC+8", 8*60*60))
-	response, err := service.Open(context.Background(), "truck001", "cam01", start, 60.5, "signed.token", "bytes=100-199")
+	file, err := service.Open(context.Background(), "truck001", "cam01", start, 60.5, "signed.token")
 	if err != nil {
 		t.Fatalf("Open returned an error: %v", err)
 	}
-	response.Body.Close()
+	defer file.Close()
 
 	if received == nil {
 		t.Fatal("MediaMTX did not receive a request")
@@ -44,12 +44,59 @@ func TestRecordingOpenBuildsMediaMTXRequest(t *testing.T) {
 	if authorization := received.Header.Get("Authorization"); authorization != "Bearer signed.token" {
 		t.Fatalf("unexpected authorization header: %q", authorization)
 	}
-	if byteRange := received.Header.Get("Range"); byteRange != "bytes=100-199" {
-		t.Fatalf("unexpected range header: %q", byteRange)
+	content, err := io.ReadAll(file)
+	if err != nil || string(content) != "complete mp4" {
+		t.Fatalf("unexpected cached recording: content=%q err=%v", content, err)
 	}
-	if response.StatusCode != http.StatusPartialContent ||
-		response.Header.Get("Content-Range") != "bytes 100-199/1000" {
-		t.Fatalf("unexpected partial response: status=%d headers=%v", response.StatusCode, response.Header)
+}
+
+func TestRecordingOpenReusesCachedMP4(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests++
+		_, _ = w.Write([]byte("cached mp4"))
+	}))
+	defer server.Close()
+
+	service := services.NewRecordingService(server.URL, "http://localhost:8080", testStreamService())
+	start := time.Date(2026, time.September, 27, 8, 19, 11, 0, time.UTC)
+	for range 2 {
+		file, err := service.Open(context.Background(), "truck001", "cam01", start, 1800, "signed.token")
+		if err != nil {
+			t.Fatal(err)
+		}
+		file.Close()
+	}
+	if requests != 1 {
+		t.Fatalf("expected one MediaMTX request, got %d", requests)
+	}
+}
+
+func TestRecordingServeSupportsByteRanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, _ = w.Write([]byte("0123456789"))
+	}))
+	defer server.Close()
+
+	service := services.NewRecordingService(server.URL, "http://localhost:8080", testStreamService())
+	request := httptest.NewRequest(http.MethodGet, "/recording.mp4", nil)
+	request.Header.Set("Range", "bytes=2-5")
+	response := httptest.NewRecorder()
+	err := service.Serve(
+		response,
+		request,
+		"truck001",
+		"cam01",
+		time.Date(2026, time.September, 27, 8, 19, 11, 0, time.UTC),
+		1800,
+		"signed.token",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusPartialContent || response.Header().Get("Accept-Ranges") != "bytes" ||
+		response.Header().Get("Content-Range") != "bytes 2-5/10" || response.Body.String() != "2345" {
+		t.Fatalf("unexpected range response: status=%d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
 	}
 }
 
