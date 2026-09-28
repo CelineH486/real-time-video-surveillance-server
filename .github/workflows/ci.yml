@@ -136,6 +136,22 @@ jobs:
             echo "Non-critical vulnerabilities were reported but do not block CI"
           fi
 
+  secret-security:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Reject committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   postgres-e2e:
     name: PostgreSQL migrations and E2E
     runs-on: ubuntu-latest
