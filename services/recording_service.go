@@ -14,8 +14,6 @@ import (
 type RecordingSpan struct {
 	Start    time.Time `json:"start"`
 	Duration float64   `json:"durationSeconds"`
-	URL      string    `json:"url"`
-	Expires  time.Time `json:"expiresAt"`
 }
 
 type mediaMTXRecordingSpan struct {
@@ -40,9 +38,11 @@ func NewRecordingService(internalBaseURL, apiPublicBaseURL string, streams *Stre
 }
 
 func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, end string) ([]RecordingSpan, error) {
-	expires := time.Now().Add(5 * time.Minute)
-	token := s.streams.SignAccess(truckID, cameraID, "main", expires)
+	token := s.streams.SignAccess(truckID, cameraID, "main", time.Now().Add(5*time.Minute))
 	query := url.Values{"path": {strings.Join([]string{truckID, cameraID, "main"}, "/")}}
+	// Our pinned MediaMTX build exposes physical segments instead of merging
+	// adjacent files. Keep the recorder's true start time after every reconnect.
+	query.Set("segments", "true")
 	for name, value := range map[string]string{"start": start, "end": end} {
 		if value == "" {
 			continue
@@ -73,7 +73,6 @@ func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, e
 	for _, span := range source {
 		result = append(result, RecordingSpan{
 			Start: span.Start, Duration: span.Duration,
-			URL: s.PublicURL(truckID, cameraID, span.Start, span.Duration, token), Expires: expires,
 		})
 	}
 	return result, nil
@@ -88,13 +87,16 @@ func (s *RecordingService) PublicURL(truckID, cameraID string, start time.Time, 
 		"/recordings/content?" + query.Encode()
 }
 
-func (s *RecordingService) Open(ctx context.Context, truckID, cameraID string, start time.Time, duration float64, token string) (*http.Response, error) {
+func (s *RecordingService) Open(ctx context.Context, truckID, cameraID string, start time.Time, duration float64, token, byteRange string) (*http.Response, error) {
 	query := mediaMTXRecordingQuery(truckID, cameraID, start, duration)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.internalBaseURL+"/get?"+query.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
+	if byteRange != "" {
+		request.Header.Set("Range", byteRange)
+	}
 	return s.client.Do(request)
 }
 

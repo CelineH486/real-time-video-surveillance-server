@@ -1,5 +1,6 @@
 .git
 .agents
+.codex-test-cache
 recordings
 truck/logs
 truck/streams.json

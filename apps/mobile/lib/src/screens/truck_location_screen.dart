@@ -211,12 +211,6 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
         ),
         title: _PageTitle(truckId: widget.truckId),
         actions: [
-          TextButton.icon(
-            onPressed: _openCameras,
-            icon: const Icon(Icons.videocam_outlined),
-            label: const Text('即時監控'),
-          ),
-          const SizedBox(width: 8),
           IconButton(
             onPressed: () => unawaited(_loadInitialLocation()),
             icon: const Icon(Icons.refresh),
@@ -247,7 +241,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
                             _followMarker(position, initial: true);
                           }
                         },
-                        onMarkerTap: _showVehicleDetails,
+                        onMarkerTap: _openCameras,
                       );
                       final details = _LocationDetails(
                         location: _location,
@@ -289,36 +283,6 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
 
   void _openCameras() {
     Navigator.of(context).pushNamed('/trucks/${widget.truckId}/cameras');
-  }
-
-  void _showVehicleDetails() {
-    final location = _location;
-    if (location == null) return;
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(widget.truckId.toUpperCase()),
-        content: _LocationDetails(
-          location: location,
-          stale: _stale,
-          compact: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('關閉'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _openCameras();
-            },
-            icon: const Icon(Icons.videocam_outlined),
-            label: const Text('查看即時監控'),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -500,13 +464,11 @@ class _LocationDetails extends StatelessWidget {
     required this.location,
     required this.stale,
     this.error,
-    this.compact = false,
   });
 
   final TruckLocation? location;
   final bool stale;
   final String? error;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -541,18 +503,16 @@ class _LocationDetails extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!compact) ...[
-          const Text(
-            'CURRENT STATUS',
-            style: TextStyle(
-              color: Color(0xFF35E6A5),
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.6,
-            ),
+        const Text(
+          'CURRENT STATUS',
+          style: TextStyle(
+            color: Color(0xFF35E6A5),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.6,
           ),
-          const SizedBox(height: 18),
-        ],
+        ),
+        const SizedBox(height: 18),
         Row(
           children: [
             Container(
@@ -582,7 +542,6 @@ class _LocationDetails extends StatelessWidget {
       ],
     );
 
-    if (compact) return content;
     return SingleChildScrollView(
       child: Card(
         child: Padding(padding: const EdgeInsets.all(20), child: content),

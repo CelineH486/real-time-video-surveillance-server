@@ -1,12 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
 import '../models/camera.dart';
 import '../models/recording.dart';
 import '../models/stream_session.dart';
 import '../services/api_client.dart';
+import '../utils/taiwan_time.dart';
+import '../widgets/recording_player.dart';
 import '../widgets/whep_video_player.dart';
 
 class CameraLiveScreen extends StatefulWidget {
@@ -30,20 +29,14 @@ class CameraLiveScreen extends StatefulWidget {
 class _CameraLiveScreenState extends State<CameraLiveScreen> {
   late Future<_LiveViewData> _data;
   Future<List<Recording>>? _recordings;
-  VideoPlayerController? _recordingController;
+  Recording? _selectedRecording;
   bool _showHistory = false;
+  DateTime _historyDate = taiwanCalendarDate(DateTime.now());
 
   @override
   void initState() {
     super.initState();
     _data = _load();
-  }
-
-  @override
-  void dispose() {
-    final controller = _recordingController;
-    if (controller != null) unawaited(controller.dispose());
-    super.dispose();
   }
 
   Future<_LiveViewData> _load() async {
@@ -71,14 +64,59 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
     });
   }
 
+  void _handleLiveAuthenticationExpired() {
+    // A WHEP request can finish after the user has switched to history.
+    // Ignore that stale live-player callback instead of changing their mode.
+    if (!mounted || _showHistory) return;
+    _reloadLive();
+  }
+
   void _loadHistory() {
+    final nowUtc = DateTime.now().toUtc();
+    final cutoffUtc = nowUtc.subtract(const Duration(days: 7));
+    final firstDate = taiwanCalendarDate(cutoffUtc);
+    final lastDate = taiwanCalendarDate(nowUtc);
+    if (_historyDate.isBefore(firstDate) || _historyDate.isAfter(lastDate)) {
+      _historyDate = lastDate;
+    }
+    final dayStartUtc = taiwanDayStartUtc(_historyDate);
+    final nextDayUtc = taiwanDayStartUtc(
+      DateTime(_historyDate.year, _historyDate.month, _historyDate.day + 1),
+    );
+    _selectedRecording = null;
     setState(() {
       _showHistory = true;
       _recordings = widget.apiClient.getRecordings(
         truckId: widget.truckId,
         cameraId: widget.cameraId,
+        start: dayStartUtc.isBefore(cutoffUtc) ? cutoffUtc : dayStartUtc,
+        end: nextDayUtc.isAfter(nowUtc) ? nowUtc : nextDayUtc,
       );
     });
+  }
+
+  Future<void> _selectHistoryDate() async {
+    final lastDate = taiwanCalendarDate(DateTime.now());
+    final firstDate = lastDate.subtract(const Duration(days: 7));
+    final initialDate = _historyDate.isBefore(firstDate)
+        ? firstDate
+        : _historyDate.isAfter(lastDate)
+        ? lastDate
+        : _historyDate;
+    final selected = await showDatePicker(
+      context: context,
+      locale: const Locale('zh', 'TW'),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      initialEntryMode: DatePickerEntryMode.calendarOnly,
+      helpText: '選擇錄影日期',
+      cancelText: '取消',
+      confirmText: '確定',
+    );
+    if (selected == null || !mounted) return;
+    _historyDate = selected;
+    _loadHistory();
   }
 
   void _goBack() {
@@ -90,23 +128,9 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
     navigator.pushReplacementNamed('/trucks/${widget.truckId}/cameras');
   }
 
-  Future<void> _playRecording(Recording recording) async {
-    final previous = _recordingController;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(recording.url),
-    );
-    setState(() => _recordingController = controller);
-    await previous?.dispose();
-    try {
-      await controller.initialize();
-      await controller.play();
-      if (mounted) setState(() {});
-    } catch (_) {
-      await controller.dispose();
-      if (mounted && identical(_recordingController, controller)) {
-        setState(() => _recordingController = null);
-      }
-    }
+  Future<void> _playRecording(Recording recording) {
+    setState(() => _selectedRecording = recording);
+    return Future.value();
   }
 
   @override
@@ -195,19 +219,51 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      if (_showHistory) ...[
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _selectHistoryDate,
+                              icon: const Icon(Icons.calendar_month),
+                              label: Text(
+                                '${_historyDate.year}/${_historyDate.month.toString().padLeft(2, '0')}/${_historyDate.day.toString().padLeft(2, '0')}',
+                              ),
+                            ),
+                            const Text('僅可選擇最近 7 天'),
+                            TextButton.icon(
+                              onPressed: _loadHistory,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重新整理'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       AspectRatio(
                         aspectRatio: 16 / 9,
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: _showHistory
-                              ? _RecordingStage(
-                                  controller: _recordingController,
+                              ? RecordingPlayer(
+                                  recording: _selectedRecording,
+                                  loadUrl: _selectedRecording == null
+                                      ? null
+                                      : () => widget.apiClient
+                                            .createRecordingPlaySession(
+                                              truckId: widget.truckId,
+                                              cameraId: widget.cameraId,
+                                              recording: _selectedRecording!,
+                                            ),
                                 )
                               : WhepVideoPlayer(
                                   url: data.session.url,
                                   token: data.session.accessToken,
                                   muted: true,
-                                  onAuthenticationExpired: _reloadLive,
+                                  onAuthenticationExpired:
+                                      _handleLiveAuthenticationExpired,
                                 ),
                         ),
                       ),
@@ -238,58 +294,6 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   }
 }
 
-class _RecordingStage extends StatelessWidget {
-  const _RecordingStage({required this.controller});
-
-  final VideoPlayerController? controller;
-
-  @override
-  Widget build(BuildContext context) {
-    if (controller == null || !controller!.value.isInitialized) {
-      return const ColoredBox(
-        color: Colors.black,
-        child: Center(
-          child: Text('請選擇一段歷史錄影', style: TextStyle(color: Colors.white54)),
-        ),
-      );
-    }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: controller!.value.aspectRatio,
-              child: VideoPlayer(controller!),
-            ),
-          ),
-        ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: VideoProgressIndicator(
-            controller!,
-            allowScrubbing: true,
-            padding: const EdgeInsets.all(12),
-          ),
-        ),
-        Center(
-          child: IconButton.filledTonal(
-            onPressed: () {
-              controller!.value.isPlaying
-                  ? controller!.pause()
-                  : controller!.play();
-            },
-            icon: Icon(
-              controller!.value.isPlaying ? Icons.pause : Icons.play_arrow,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _RecordingList extends StatelessWidget {
   const _RecordingList({required this.recordings, required this.onPlay});
 
@@ -307,25 +311,76 @@ class _RecordingList extends StatelessWidget {
         if (snapshot.hasError) {
           return Text('讀取歷史錄影失敗：${snapshot.error}');
         }
-        final rows = snapshot.data ?? const [];
+        final rows = (snapshot.data ?? const <Recording>[]).toList();
         if (rows.isEmpty) return const Text('尚無歷史錄影');
         return Wrap(
           spacing: 10,
           runSpacing: 10,
           children: [
             for (final recording in rows)
-              OutlinedButton.icon(
-                onPressed: () => onPlay(recording),
-                icon: const Icon(Icons.play_arrow),
-                label: Text(
-                  '${recording.start.toLocal()} · '
-                  '${recording.durationSeconds.round()} 秒',
+              SizedBox(
+                width: 270,
+                height: 58,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () => onPlay(recording),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.play_arrow, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _formatSlot(recording),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              _formatDuration(recording.durationSeconds),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            if (!_isComplete(recording)) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '部分',
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],
         );
       },
     );
+  }
+
+  bool _isComplete(Recording recording) {
+    return recording.isComplete;
+  }
+
+  String _formatSlot(Recording recording) => recording.timeLabel;
+
+  String _formatDuration(double seconds) {
+    final duration = Duration(seconds: seconds.round());
+    final minutes = duration.inMinutes;
+    if (minutes > 0) return '$minutes 分';
+    return '${duration.inSeconds} 秒';
   }
 }
 

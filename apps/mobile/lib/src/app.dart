@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'screens/camera_grid_screen.dart';
 import 'screens/camera_live_screen.dart';
@@ -142,6 +143,12 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
       navigatorKey: _navigatorKey,
       title: '即時影像監控',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('zh', 'TW'), Locale('en')],
       theme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(

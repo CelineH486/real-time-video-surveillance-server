@@ -105,7 +105,9 @@ class _WhepVideoPlayerState extends State<WhepVideoPlayer> {
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (response.statusCode == 401 || response.statusCode == 403) {
-          widget.onAuthenticationExpired?.call();
+          if (mounted && !_disposing) {
+            widget.onAuthenticationExpired?.call();
+          }
         }
         throw StateError('WHEP ${response.statusCode}');
       }

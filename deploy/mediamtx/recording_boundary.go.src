@@ -1,0 +1,12 @@
+package recorder
+
+import "time"
+
+var recordingTaiwan = time.FixedZone("Asia/Taipei", 8*60*60)
+
+// nextRecordingMidnight returns the next Taiwan calendar boundary. MediaMTX's
+// existing segment-duration logic remains responsible for the 30-minute cuts.
+func nextRecordingMidnight(start time.Time) time.Time {
+	local := start.In(recordingTaiwan)
+	return time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, recordingTaiwan)
+}

@@ -1,0 +1,23 @@
+package recorder
+
+import (
+	"testing"
+	"time"
+)
+
+func TestTaiwanRecordingMidnight(t *testing.T) {
+	for _, tc := range []struct{ start, want string }{
+		{"2026-09-16T11:24:00+08:00", "2026-09-17T00:00:00+08:00"},
+		{"2026-09-16T23:44:00+08:00", "2026-09-17T00:00:00+08:00"},
+		{"2026-09-17T00:00:00+08:00", "2026-09-18T00:00:00+08:00"},
+		{"2026-12-31T15:59:59Z", "2027-01-01T00:00:00+08:00"},
+	} {
+		t.Run(tc.start, func(t *testing.T) {
+			start, _ := time.Parse(time.RFC3339Nano, tc.start)
+			want, _ := time.Parse(time.RFC3339Nano, tc.want)
+			if got := nextRecordingMidnight(start); !got.Equal(want) {
+				t.Fatalf("got %s, want %s", got, want)
+			}
+		})
+	}
+}

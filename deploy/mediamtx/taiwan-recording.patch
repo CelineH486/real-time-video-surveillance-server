@@ -1,0 +1,72 @@
+diff --git a/internal/playback/on_list.go b/internal/playback/on_list.go
+index ed86f16..abf1717 100644
+--- a/internal/playback/on_list.go
++++ b/internal/playback/on_list.go
+@@ -202,7 +202,20 @@ func (s *Server) onList(ctx *gin.Context) {
+ 		return
+ 	}
+ 
+-	entries, err := parseAndConcatenate(pathConf.RecordFormat, segments)
++	var entries []listEntry
++	if ctx.Query("segments") == "true" && pathConf.RecordFormat == conf.RecordFormatFMP4 {
++		var parsed []*parsedSegment
++		parsed, err = parseSegments(segments)
++		for _, segment := range parsed {
++			if segment != nil {
++				entries = append(entries, listEntry{
++					Start: segment.start, Duration: listEntryDuration(segment.duration),
++				})
++			}
++		}
++	} else {
++		entries, err = parseAndConcatenate(pathConf.RecordFormat, segments)
++	}
+ 	if err != nil {
+ 		s.writeError(ctx, http.StatusInternalServerError, err)
+ 		return
+diff --git a/internal/recorder/format_fmp4.go b/internal/recorder/format_fmp4.go
+index 4f1b1fc..67b5567 100644
+--- a/internal/recorder/format_fmp4.go
++++ b/internal/recorder/format_fmp4.go
+@@ -157,6 +157,7 @@ type formatFMP4 struct {
+ 	hasVideo          bool
+ 	currentSegment    *formatFMP4Segment
+ 	nextSegmentNumber uint64
++	nextMidnight      time.Time
+ }
+ 
+ func (f *formatFMP4) initialize() bool {
+diff --git a/internal/recorder/format_fmp4_track.go b/internal/recorder/format_fmp4_track.go
+index 9c3f867..db509d6 100644
+--- a/internal/recorder/format_fmp4_track.go
++++ b/internal/recorder/format_fmp4_track.go
+@@ -97,6 +97,9 @@ func (t *formatFMP4Track) write(sample *formatFMP4Sample) error {
+ 	}
+ 
+ 	if t.f.currentSegment == nil {
++		if t.f.nextMidnight.IsZero() && !sample.ntp.IsZero() {
++			t.f.nextMidnight = nextRecordingMidnight(sample.ntp)
++		}
+ 		t.f.currentSegment = &formatFMP4Segment{
+ 			f:        t.f,
+ 			startDTS: dts,
+@@ -119,13 +122,18 @@ func (t *formatFMP4Track) write(sample *formatFMP4Sample) error {
+ 
+ 	if (!t.f.hasVideo || t.initTrack.Codec.IsVideo()) &&
+ 		!t.nextSample.IsNonSyncSample &&
+-		(nextDTS-t.f.currentSegment.startDTS) >= t.f.ri.segmentDuration {
++		((nextDTS-t.f.currentSegment.startDTS) >= t.f.ri.segmentDuration ||
++			(!t.f.nextMidnight.IsZero() && !t.nextSample.ntp.IsZero() &&
++				!t.nextSample.ntp.Before(t.f.nextMidnight))) {
+ 		err = t.f.currentSegment.close()
+ 		if err != nil {
+ 			return err
+ 		}
+ 
+ 		oldestNTP, oldestDTS := nextSegmentStartingPos(t.f.tracks)
++		if !oldestNTP.IsZero() && !oldestNTP.Before(t.f.nextMidnight) {
++			t.f.nextMidnight = nextRecordingMidnight(oldestNTP)
++		}
+ 
+ 		t.f.currentSegment = &formatFMP4Segment{
+ 			f:        t.f,

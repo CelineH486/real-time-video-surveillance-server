@@ -136,7 +136,13 @@ On the truck computer, copy `truck/streams.example.json` to the ignored file `tr
 powershell -ExecutionPolicy Bypass -File truck/start-streams.ps1
 ```
 
-Each camera publishes an unchanged high-quality `main` stream and a 360p/12fps `sub` stream. MediaMTX records only `main` in five-minute fMP4 segments; files are retained until an explicit retention policy is chosen.
+Each camera publishes an unchanged high-quality `main` stream and a 360p/12fps `sub` stream. MediaMTX records only `main` in 30-minute fMP4 segments and automatically removes recordings older than seven days. With eight 1080p H.264 cameras at 2–4 Mbps, plan for approximately 1.2–2.4 TB per truck for seven days, plus operational free space.
+
+Recording segments begin when a vehicle starts publishing rather than on clock
+half-hours. A stream that starts at 11:24 records 11:24–11:54, then continues in
+30-minute segments. The segment containing Taiwan midnight ends at 24:00, and
+the next day's sequence starts at 00:00. Segment rotation occurs on the next
+video keyframe, so file boundaries can differ by a few seconds.
 
 ## End-to-end video test
 
