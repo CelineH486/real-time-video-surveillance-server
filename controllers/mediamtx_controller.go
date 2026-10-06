@@ -55,9 +55,15 @@ func (c *MediaMTXController) Auth(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, apiresponse.CodeCameraNotFound, apiresponse.MessageMediaMTXCameraNotFound)
 			return
 		}
-	case "read", "playback":
+	case "read":
 		claims, err := c.streams.ValidateAccess(request.Token, time.Now())
 		if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || claims.Quality != quality {
+			writeError(w, http.StatusUnauthorized, apiresponse.CodeStreamAccessDenied, apiresponse.MessageStreamAccessDenied)
+			return
+		}
+	case "playback":
+		claims, err := c.streams.ValidateRecordingAccess(request.Token, time.Now())
+		if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || quality != "main" {
 			writeError(w, http.StatusUnauthorized, apiresponse.CodeStreamAccessDenied, apiresponse.MessageStreamAccessDenied)
 			return
 		}

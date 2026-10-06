@@ -73,8 +73,8 @@ func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 	if !c.cameraExists(w, truckID, cameraID) {
 		return
 	}
-	expires := time.Now().Add(5 * time.Minute)
-	token := c.streams.SignAccess(truckID, cameraID, "main", expires)
+	expires := services.RecordingAccessExpiry(time.Now(), request.Duration)
+	token := c.streams.SignRecordingAccess(truckID, cameraID, request.Start, request.Duration, expires)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url":         c.recordings.PublicURL(truckID, cameraID, request.Start, request.Duration, token),
 		"accessToken": token, "expiresAt": expires,
@@ -83,8 +83,8 @@ func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 
 func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 	truckID, cameraID, token := r.PathValue("truckID"), r.PathValue("cameraID"), r.URL.Query().Get("token")
-	claims, err := c.streams.ValidateAccess(token, time.Now())
-	if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || claims.Quality != "main" {
+	claims, err := c.streams.ValidateRecordingAccess(token, time.Now())
+	if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID {
 		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
@@ -96,6 +96,10 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 	duration, err := strconv.ParseFloat(r.URL.Query().Get("duration"), 64)
 	if err != nil || duration <= 0 || duration > 24*60*60 {
 		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingDuration, apiresponse.MessageQueryDurationRange)
+		return
+	}
+	if !claims.Allows(truckID, cameraID, start, duration) {
+		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
