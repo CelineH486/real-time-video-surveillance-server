@@ -147,13 +147,18 @@ class ApiClient {
     required String truckId,
     required String cameraId,
     required Recording recording,
+    Duration offset = Duration.zero,
   }) async {
+    final remainingMicroseconds =
+        (recording.durationSeconds * Duration.microsecondsPerSecond).round() -
+        offset.inMicroseconds;
     final response = await http.post(
       _uri('/api/trucks/$truckId/cameras/$cameraId/recordings/play'),
       headers: {..._headers, 'Content-Type': 'application/json'},
       body: jsonEncode({
-        'start': recording.start.toUtc().toIso8601String(),
-        'durationSeconds': recording.durationSeconds,
+        'start': recording.start.toUtc().add(offset).toIso8601String(),
+        'durationSeconds':
+            remainingMicroseconds / Duration.microsecondsPerSecond,
       }),
     );
     _ensureSuccess(response);
