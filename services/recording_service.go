@@ -63,7 +63,7 @@ func NewRecordingService(internalBaseURL, apiPublicBaseURL string, streams *Stre
 }
 
 func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, end string) ([]RecordingSpan, error) {
-	token := s.streams.SignAccess(truckID, cameraID, "main", time.Now().Add(5*time.Minute))
+	token := s.streams.SignRecordingAccess(truckID, cameraID, time.Unix(0, 0), 0, time.Now().Add(5*time.Minute))
 	query := url.Values{"path": {strings.Join([]string{truckID, cameraID, "main"}, "/")}}
 	// Our pinned MediaMTX build exposes physical segments instead of merging
 	// adjacent files. Keep the recorder's true start time after every reconnect.
