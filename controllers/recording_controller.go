@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -75,8 +73,8 @@ func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 	if !c.cameraExists(w, truckID, cameraID) {
 		return
 	}
-	expires := time.Now().Add(5 * time.Minute)
-	token := c.streams.SignAccess(truckID, cameraID, "main", expires)
+	expires := services.RecordingAccessExpiry(time.Now(), request.Duration)
+	token := c.streams.SignRecordingAccess(truckID, cameraID, request.Start, request.Duration, expires)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url":         c.recordings.PublicURL(truckID, cameraID, request.Start, request.Duration, token),
 		"accessToken": token, "expiresAt": expires,
@@ -85,8 +83,8 @@ func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 
 func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 	truckID, cameraID, token := r.PathValue("truckID"), r.PathValue("cameraID"), r.URL.Query().Get("token")
-	claims, err := c.streams.ValidateAccess(token, time.Now())
-	if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || claims.Quality != "main" {
+	claims, err := c.streams.ValidateRecordingAccess(token, time.Now())
+	if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID {
 		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
@@ -100,25 +98,13 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingDuration, apiresponse.MessageQueryDurationRange)
 		return
 	}
-	response, err := c.recordings.Open(r.Context(), truckID, cameraID, start, duration, token, r.Header.Get("Range"))
-	if err != nil {
-		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingOpenUnavailable)
+	if !claims.Allows(truckID, cameraID, start, duration) {
+		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
-	}
-	defer response.Body.Close()
-	if response.StatusCode/100 != 2 {
-		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceRejected, apiresponse.MessageRecordingServiceRejected)
-		return
-	}
-	for _, name := range []string{"Accept-Ranges", "Content-Length", "Content-Range", "Content-Type"} {
-		if value := response.Header.Get(name); value != "" {
-			w.Header().Set(name, value)
-		}
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	w.WriteHeader(response.StatusCode)
-	if _, err := io.Copy(w, response.Body); err != nil {
-		log.Printf("stream recording response: %v", err)
+	if err := c.recordings.Serve(w, r, truckID, cameraID, start, duration, token); err != nil {
+		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingOpenUnavailable)
 	}
 }
 
