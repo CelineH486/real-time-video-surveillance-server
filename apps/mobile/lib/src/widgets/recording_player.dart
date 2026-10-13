@@ -14,7 +14,7 @@ class RecordingPlayer extends StatefulWidget {
   });
 
   final Recording? recording;
-  final Future<String> Function(Duration offset)? loadUrl;
+  final Future<String> Function()? loadUrl;
 
   @override
   State<RecordingPlayer> createState() => _RecordingPlayerState();
@@ -24,7 +24,6 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   VideoPlayerController? _controller;
   Future<void>? _ready;
   int _selectionId = 0;
-  Duration _sourceOffset = Duration.zero;
 
   Duration get _totalDuration {
     final seconds = widget.recording?.durationSeconds ?? 0;
@@ -49,24 +48,22 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     }
   }
 
-  void _select({Duration offset = Duration.zero}) {
+  void _select() {
     final selectionId = ++_selectionId;
     final previous = _controller;
     _controller = null;
     _ready = null;
-    _sourceOffset = _clampPosition(offset);
     if (previous != null) unawaited(previous.dispose());
     final loadUrl = widget.loadUrl;
     if (widget.recording == null || loadUrl == null) return;
-    _ready = _loadAndInitialize(loadUrl, _sourceOffset, selectionId);
+    _ready = _loadAndInitialize(loadUrl, selectionId);
   }
 
   Future<void> _loadAndInitialize(
-    Future<String> Function(Duration offset) loadUrl,
-    Duration offset,
+    Future<String> Function() loadUrl,
     int selectionId,
   ) async {
-    final url = await loadUrl(offset);
+    final url = await loadUrl();
     if (!mounted || selectionId != _selectionId) return;
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
@@ -99,19 +96,11 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     final target = _clampPosition(position);
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    final localTarget = target - _sourceOffset;
-    final isBuffered =
-        localTarget >= Duration.zero &&
-        controller.value.buffered.any(
-          (range) => localTarget >= range.start && localTarget <= range.end,
-        );
-    if (isBuffered) {
-      await controller.seekTo(localTarget);
-      if (!controller.value.isPlaying) await controller.play();
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _select(offset: target));
+    // Keep the original recording URL and controller. For an unbuffered
+    // position, video_player will issue a byte-range request against the same
+    // cached MP4 instead of creating a new playback session and MP4 clip.
+    await controller.seekTo(target);
+    if (!controller.value.isPlaying) await controller.play();
   }
 
   @override
@@ -157,8 +146,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
                     style: TextStyle(color: Colors.white),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        setState(() => _select(offset: _sourceOffset)),
+                    onPressed: () => setState(_select),
                     child: const Text('重試'),
                   ),
                 ],
@@ -169,16 +157,12 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
           return ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: controller,
             builder: (context, value, child) {
-              final position = _clampTimelinePosition(
-                _sourceOffset + value.position,
-              );
+              final position = _clampTimelinePosition(value.position);
               final buffered = value.buffered
                   .map(
                     (range) => (
-                      start: _clampTimelinePosition(
-                        _sourceOffset + range.start,
-                      ),
-                      end: _clampTimelinePosition(_sourceOffset + range.end),
+                      start: _clampTimelinePosition(range.start),
+                      end: _clampTimelinePosition(range.end),
                     ),
                   )
                   .toList();
