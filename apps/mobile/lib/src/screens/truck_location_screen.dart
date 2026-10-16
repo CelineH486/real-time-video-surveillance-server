@@ -211,6 +211,14 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
         ),
         title: _PageTitle(truckId: widget.truckId),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: OutlinedButton.icon(
+              onPressed: _openCameras,
+              icon: const Icon(Icons.video_library_outlined, size: 18),
+              label: const Text('查看錄影'),
+            ),
+          ),
           IconButton(
             onPressed: () => unawaited(_loadInitialLocation()),
             icon: const Icon(Icons.refresh),

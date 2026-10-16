@@ -10,6 +10,7 @@ web/*
 .env.*
 !.env.example
 !.env.production.example
+.DS_Store
 
 # Private credentials and signing material
 *.pem
