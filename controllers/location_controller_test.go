@@ -24,3 +24,29 @@ func TestLocationBroadcastDeliversNewestUpdate(t *testing.T) {
 		t.Fatal("timed out waiting for location update")
 	}
 }
+
+func TestLocationController_SubscribeAndUnsubscribe(t *testing.T) {
+	controller := NewLocationController(nil)
+
+	truckID := "test-truck-999"
+
+	updates, unsubscribe := controller.subscribe(truckID)
+
+	if updates == nil {
+		t.Error("Expected a non-nil channel, but got nil")
+	}
+
+	subCount := len(controller.subscribers[truckID])
+
+	if subCount != 1 {
+		t.Errorf("Expected 1 subscriber, but got %d", subCount)
+	}
+
+	unsubscribe()
+
+	_, exists := controller.subscribers[truckID]
+
+	if exists {
+		t.Error("Expected subscription entry for truckID to be removed after unsubscribing, but it still exists (potential memory leak))")
+	}
+}
