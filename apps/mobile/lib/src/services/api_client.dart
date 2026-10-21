@@ -97,6 +97,23 @@ class ApiClient {
     );
   }
 
+  Future<List<TruckLocation>> getTruckLocationHistory({
+    required String truckId,
+    required DateTime date,
+  }) async {
+    String two(int value) => value.toString().padLeft(2, '0');
+    final dateValue = '${date.year}-${two(date.month)}-${two(date.day)}';
+    final response = await http.get(
+      _uri('/api/trucks/$truckId/locations/history', {'date': dateValue}),
+      headers: _headers,
+    );
+    _ensureSuccess(response);
+    final rows = jsonDecode(response.body) as List<dynamic>;
+    return rows
+        .map((row) => TruckLocation.fromJson(row as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
   WebSocketChannel openTruckLocationSocket(String truckId) {
     final socketUri = _uri(
       '/api/trucks/$truckId/locations/ws',

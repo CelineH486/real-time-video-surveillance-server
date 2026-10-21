@@ -219,6 +219,16 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
               label: const Text('查看錄影'),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.of(
+                context,
+              ).pushNamed('/trucks/${widget.truckId}/location-history'),
+              icon: const Icon(Icons.route, size: 18),
+              label: const Text('移動軌跡'),
+            ),
+          ),
           IconButton(
             onPressed: () => unawaited(_loadInitialLocation()),
             icon: const Icon(Icons.refresh),

@@ -22,6 +22,37 @@ type LocationController struct {
 	now         func() time.Time
 	subscribers map[string]map[chan models.TruckLocation]struct{}
 	mu          sync.Mutex
+	cleanupMu   sync.Mutex
+	lastCleanup time.Time
+}
+
+func (c *LocationController) locationHistoryCleanupCutoff(now time.Time) time.Time {
+	cutoff := services.LocationHistoryCutoff(now)
+	c.cleanupMu.Lock()
+	defer c.cleanupMu.Unlock()
+	if !c.lastCleanup.Before(cutoff) {
+		return time.Time{}
+	}
+	c.lastCleanup = cutoff
+	return cutoff
+}
+
+func (c *LocationController) History(w http.ResponseWriter, r *http.Request) {
+	truckID := r.PathValue("truckID")
+	if _, ok := requireTruckAccess(c.database, w, r, truckID); !ok {
+		return
+	}
+	start, end, err := services.LocationHistoryDayRange(r.URL.Query().Get("date"), c.now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidLocationHistoryDate, apiresponse.MessageInvalidLocationHistoryDate)
+		return
+	}
+	locations, err := db.TruckLocationHistory(c.database, truckID, start, end)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, apiresponse.CodeLocationUnavailable, apiresponse.MessageLocationUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, locations)
 }
 
 func NewLocationController(database *sql.DB) *LocationController {
@@ -145,7 +176,10 @@ func (c *LocationController) Create(w http.ResponseWriter, r *http.Request) {
 		previousPtr = &previous
 	}
 	anchorLat, anchorLon, stoppedSince := services.StopState(previousPtr, input, recordedAt)
-	location, err := db.SaveTruckLocation(c.database, truckID, input, recordedAt, now, anchorLat, anchorLon, stoppedSince)
+	location, err := db.SaveTruckLocation(
+		c.database, truckID, input, recordedAt, now,
+		c.locationHistoryCleanupCutoff(now), anchorLat, anchorLon, stoppedSince,
+	)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, apiresponse.CodeLocationUnavailable, apiresponse.MessageLocationUnavailable)
 		return
