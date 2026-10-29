@@ -24,6 +24,8 @@ const (
 	recordingStart    = "2026-10-20T08:00:00Z"
 )
 
+var recordingStartTime = time.Date(2026, time.October, 20, 8, 0, 0, 0, time.UTC)
+
 func newRecordingMock(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	t.Helper()
 
@@ -345,15 +347,18 @@ func TestRecordingController_Play_Success(t *testing.T) {
 		parsed.Query().Get("start") != recordingStart || parsed.Query().Get("duration") != "30.5" {
 		t.Errorf("unexpected play URL query parameters: %s", result.URL)
 	}
-	claims, err := streams.ValidateAccess(result.AccessToken, before)
+	claims, err := streams.ValidateRecordingAccess(result.AccessToken, before)
 	if err != nil {
 		t.Fatalf("validate playback token: %v", err)
 	}
-	if claims.TruckID != recordingTruckID || claims.CameraID != recordingCameraID || claims.Quality != "main" {
+	if claims.TruckID != recordingTruckID || claims.CameraID != recordingCameraID ||
+		!claims.Start.Equal(recordingStartTime) || claims.Duration != 30.5 {
 		t.Errorf("unexpected playback token claims: %+v", claims)
 	}
-	if result.ExpiresAt.Before(before.Add(5*time.Minute)) || result.ExpiresAt.After(after.Add(5*time.Minute)) {
-		t.Errorf("expiresAt = %v, want between %v and %v", result.ExpiresAt, before.Add(5*time.Minute), after.Add(5*time.Minute))
+	minimumExpiry := services.RecordingAccessExpiry(before, 30.5)
+	maximumExpiry := services.RecordingAccessExpiry(after, 30.5)
+	if result.ExpiresAt.Before(minimumExpiry) || result.ExpiresAt.After(maximumExpiry) {
+		t.Errorf("expiresAt = %v, want between %v and %v", result.ExpiresAt, minimumExpiry, maximumExpiry)
 	}
 }
 
@@ -368,10 +373,10 @@ func recordingContentRequest(token, start, duration string) *http.Request {
 
 func TestRecordingController_Content_Unauthorized(t *testing.T) {
 	streams := recordingStreamService()
-	validSub := streams.SignAccess(recordingTruckID, recordingCameraID, "sub", time.Now().Add(time.Hour))
-	wrongTruck := streams.SignAccess("other-truck", recordingCameraID, "main", time.Now().Add(time.Hour))
-	wrongCamera := streams.SignAccess(recordingTruckID, "other-camera", "main", time.Now().Add(time.Hour))
-	expired := streams.SignAccess(recordingTruckID, recordingCameraID, "main", time.Now().Add(-time.Minute))
+	wrongTruck := streams.SignRecordingAccess("other-truck", recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+	wrongCamera := streams.SignRecordingAccess(recordingTruckID, "other-camera", recordingStartTime, 30, time.Now().Add(time.Hour))
+	wrongWindow := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime.Add(-time.Hour), 30, time.Now().Add(time.Hour))
+	expired := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(-time.Minute))
 	cases := []struct {
 		name  string
 		token string
@@ -380,7 +385,7 @@ func TestRecordingController_Content_Unauthorized(t *testing.T) {
 		{"InvalidSignature", "invalid-token"},
 		{"WrongTruck", wrongTruck},
 		{"WrongCamera", wrongCamera},
-		{"WrongQuality", validSub},
+		{"WrongRecordingWindow", wrongWindow},
 		{"ExpiredToken", expired},
 	}
 	for _, tc := range cases {
@@ -395,7 +400,7 @@ func TestRecordingController_Content_Unauthorized(t *testing.T) {
 
 func TestRecordingController_Content_Validation(t *testing.T) {
 	streams := recordingStreamService()
-	token := streams.SignAccess(recordingTruckID, recordingCameraID, "main", time.Now().Add(time.Hour))
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
 	cases := []struct {
 		name     string
 		start    string
@@ -436,7 +441,7 @@ func TestRecordingController_Content_UpstreamErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			recordings, streams := recordingServices(tc.makeURL(t))
-			token := streams.SignAccess(recordingTruckID, recordingCameraID, "main", time.Now().Add(time.Hour))
+			token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
 			controller := NewRecordingController(nil, recordings, streams)
 			rec := httptest.NewRecorder()
 			controller.Content(rec, recordingContentRequest(token, recordingStart, "30"))
@@ -457,7 +462,7 @@ func TestRecordingController_Content_Success(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var upstreamCalled bool
-			// Exercise both full and ranged response forwarding.
+			// Exercise full and ranged responses from materialized recording content.
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				upstreamCalled = true
 				if r.Method != http.MethodGet || r.URL.Path != "/get" || r.URL.Query().Get("path") != "truck001/cam01/main" {
@@ -466,8 +471,8 @@ func TestRecordingController_Content_Success(t *testing.T) {
 				if r.URL.Query().Get("start") != recordingStart || r.URL.Query().Get("duration") != "30" || r.URL.Query().Get("format") != "mp4" {
 					t.Errorf("unexpected MediaMTX recording parameters: %s", r.URL.RawQuery)
 				}
-				if r.Header.Get("Range") != tc.byteRange {
-					t.Errorf("Range header = %q, want %q", r.Header.Get("Range"), tc.byteRange)
+				if r.Header.Get("Range") != "" {
+					t.Errorf("upstream Range header = %q, want empty", r.Header.Get("Range"))
 				}
 				if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 					t.Error("MediaMTX /get request is missing a Bearer token")
@@ -483,7 +488,7 @@ func TestRecordingController_Content_Success(t *testing.T) {
 			}))
 			defer server.Close()
 			recordings, streams := recordingServices(server.URL)
-			token := streams.SignAccess(recordingTruckID, recordingCameraID, "main", time.Now().Add(time.Hour))
+			token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
 			controller := NewRecordingController(nil, recordings, streams)
 			req := recordingContentRequest(token, recordingStart, "30")
 			if tc.byteRange != "" {
@@ -499,8 +504,8 @@ func TestRecordingController_Content_Success(t *testing.T) {
 				rec.Header().Get("Content-Length") != "4" || rec.Header().Get("Cache-Control") != "private, no-store" {
 				t.Errorf("recording response headers were not forwarded: %+v", rec.Header())
 			}
-			if tc.upstream == http.StatusPartialContent && rec.Header().Get("Content-Range") != "bytes 0-3/100" {
-				t.Errorf("Content-Range = %q, want %q", rec.Header().Get("Content-Range"), "bytes 0-3/100")
+			if tc.upstream == http.StatusPartialContent && rec.Header().Get("Content-Range") != "bytes 0-3/4" {
+				t.Errorf("Content-Range = %q, want %q", rec.Header().Get("Content-Range"), "bytes 0-3/4")
 			}
 		})
 	}
