@@ -39,12 +39,14 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
   StreamSubscription<dynamic>? _socketSubscription;
   Timer? _reconnectTimer;
   Timer? _freshnessTimer;
+  Timer? _locationRefreshTimer;
   TruckLocation? _location;
   LatLng? _markerPosition;
   LatLng? _movementStart;
   LatLng? _movementTarget;
   bool _mapReady = false;
   bool _loading = true;
+  bool _refreshingLocation = false;
   _LocationSocketStatus _socketStatus = _LocationSocketStatus.connecting;
   String? _error;
 
@@ -60,11 +62,16 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
       (_) => mounted ? setState(() {}) : null,
     );
     unawaited(_loadInitialLocation());
+    _locationRefreshTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_refreshCurrentLocation()),
+    );
   }
 
   @override
   void dispose() {
     _freshnessTimer?.cancel();
+    _locationRefreshTimer?.cancel();
     _reconnectTimer?.cancel();
     unawaited(_socketSubscription?.cancel());
     unawaited(_channel?.sink.close());
@@ -93,6 +100,21 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
     }
   }
 
+  Future<void> _refreshCurrentLocation() async {
+    if (_refreshingLocation) return;
+    _refreshingLocation = true;
+    try {
+      final location = await widget.apiClient.getTruckLocation(widget.truckId);
+      if (!mounted) return;
+      if (location != null) _applyLocation(location);
+    } catch (error) {
+      if (!mounted || _location != null) return;
+      setState(() => _error = '$error');
+    } finally {
+      _refreshingLocation = false;
+    }
+  }
+
   void _connectSocket() {
     _reconnectTimer?.cancel();
     unawaited(_socketSubscription?.cancel());
@@ -110,6 +132,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
           (_) {
             if (mounted && identical(_channel, channel)) {
               setState(() => _socketStatus = _LocationSocketStatus.connected);
+              unawaited(_refreshCurrentLocation());
             }
           },
           onError: (Object _) {
@@ -142,6 +165,10 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
 
   void _applyLocation(TruckLocation location, {bool animate = true}) {
     if (!mounted) return;
+    final current = _location;
+    if (current != null && location.receivedAt.isBefore(current.receivedAt)) {
+      return;
+    }
     final target = LatLng(location.latitude, location.longitude);
     _error = null;
     _location = location;
@@ -220,7 +247,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
             ),
           ),
           IconButton(
-            onPressed: () => unawaited(_loadInitialLocation()),
+            onPressed: () => unawaited(_refreshCurrentLocation()),
             icon: const Icon(Icons.refresh),
             tooltip: '更新位置',
           ),
