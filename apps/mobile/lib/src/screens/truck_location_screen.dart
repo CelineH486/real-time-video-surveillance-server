@@ -39,7 +39,6 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
   StreamSubscription<dynamic>? _socketSubscription;
   Timer? _reconnectTimer;
   Timer? _freshnessTimer;
-  Timer? _locationRefreshTimer;
   TruckLocation? _location;
   LatLng? _markerPosition;
   LatLng? _movementStart;
@@ -62,16 +61,11 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
       (_) => mounted ? setState(() {}) : null,
     );
     unawaited(_loadInitialLocation());
-    _locationRefreshTimer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => unawaited(_refreshCurrentLocation()),
-    );
   }
 
   @override
   void dispose() {
     _freshnessTimer?.cancel();
-    _locationRefreshTimer?.cancel();
     _reconnectTimer?.cancel();
     unawaited(_socketSubscription?.cancel());
     unawaited(_channel?.sink.close());
@@ -132,7 +126,6 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
           (_) {
             if (mounted && identical(_channel, channel)) {
               setState(() => _socketStatus = _LocationSocketStatus.connected);
-              unawaited(_refreshCurrentLocation());
             }
           },
           onError: (Object _) {
