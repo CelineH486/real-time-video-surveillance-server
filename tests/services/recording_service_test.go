@@ -101,11 +101,18 @@ func TestRecordingServeSupportsByteRanges(t *testing.T) {
 }
 
 func TestRecordingListRequestsPhysicalSegments(t *testing.T) {
-	var received *http.Request
+	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		received = request
+		if request.URL.Query().Get("segments") != "true" {
+			t.Error("physical segments were not requested")
+		}
+		paths = append(paths, request.URL.Query().Get("path"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"start":"2026-09-16T03:24:00Z","duration":1800}]`))
+		if request.URL.Query().Get("path") == "truck001/cam01/archive" {
+			_, _ = w.Write([]byte(`[{"start":"2026-09-16T04:00:00Z","duration":1800}]`))
+		} else {
+			_, _ = w.Write([]byte(`[{"start":"2026-09-16T03:24:00Z","duration":1800}]`))
+		}
 	}))
 	defer server.Close()
 
@@ -114,10 +121,11 @@ func TestRecordingListRequestsPhysicalSegments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List returned an error: %v", err)
 	}
-	if received == nil || received.URL.Query().Get("segments") != "true" {
-		t.Fatalf("physical segments were not requested: %v", received)
+	if len(paths) != 2 || paths[0] != "truck001/cam01/main" || paths[1] != "truck001/cam01/archive" {
+		t.Fatalf("unexpected source paths: %v", paths)
 	}
-	if len(rows) != 1 || !rows[0].Start.Equal(time.Date(2026, 9, 16, 3, 24, 0, 0, time.UTC)) {
+	if len(rows) != 2 || rows[0].Source != "main" || rows[1].Source != "archive" ||
+		!rows[0].Start.Equal(time.Date(2026, 9, 16, 3, 24, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected recording rows: %#v", rows)
 	}
 	encoded, err := json.Marshal(rows)
@@ -137,5 +145,28 @@ func TestRecordingPublicURL(t *testing.T) {
 		if !strings.Contains(result, expected) {
 			t.Fatalf("recording API URL %q does not contain %q", result, expected)
 		}
+	}
+}
+
+func TestRecordingArchiveRequestUsesArchivePath(t *testing.T) {
+	var path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		path = request.URL.Query().Get("path")
+		_, _ = w.Write([]byte("archive mp4"))
+	}))
+	defer server.Close()
+
+	service := services.NewRecordingService(server.URL, "http://localhost:8080", testStreamService())
+	start := time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC)
+	file, err := service.OpenSource(context.Background(), "truck001", "cam01", "archive", start, 60, "signed.token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	if path != "truck001/cam01/archive" {
+		t.Fatalf("archive playback used %q", path)
+	}
+	if url := service.PublicURLForSource("truck001", "cam01", "archive", start, 60, "signed.token"); !strings.Contains(url, "source=archive") {
+		t.Fatalf("archive source missing from playback URL: %s", url)
 	}
 }

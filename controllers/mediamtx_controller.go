@@ -63,7 +63,7 @@ func (c *MediaMTXController) Auth(w http.ResponseWriter, r *http.Request) {
 		}
 	case "playback":
 		claims, err := c.streams.ValidateRecordingAccess(request.Token, time.Now())
-		if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || quality != "main" {
+		if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID || (quality != "main" && quality != "archive") {
 			writeError(w, http.StatusUnauthorized, apiresponse.CodeStreamAccessDenied, apiresponse.MessageStreamAccessDenied)
 			return
 		}

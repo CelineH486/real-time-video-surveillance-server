@@ -21,20 +21,22 @@ func TestMediaMTXSeparatesLiveAndRecordingTokens(t *testing.T) {
 	tests := []struct {
 		name   string
 		action string
+		path   string
 		token  string
 		status int
 	}{
-		{name: "live token reads live stream", action: "read", token: liveToken, status: http.StatusNoContent},
-		{name: "recording token plays recording", action: "playback", token: recordingToken, status: http.StatusNoContent},
-		{name: "recording token cannot read live stream", action: "read", token: recordingToken, status: http.StatusUnauthorized},
-		{name: "live token cannot play recording", action: "playback", token: liveToken, status: http.StatusUnauthorized},
+		{name: "live token reads live stream", action: "read", path: "truck001/cam01/main", token: liveToken, status: http.StatusNoContent},
+		{name: "recording token plays old recording", action: "playback", path: "truck001/cam01/main", token: recordingToken, status: http.StatusNoContent},
+		{name: "recording token plays archive", action: "playback", path: "truck001/cam01/archive", token: recordingToken, status: http.StatusNoContent},
+		{name: "recording token cannot read live stream", action: "read", path: "truck001/cam01/main", token: recordingToken, status: http.StatusUnauthorized},
+		{name: "live token cannot play recording", action: "playback", path: "truck001/cam01/archive", token: liveToken, status: http.StatusUnauthorized},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := json.Marshal(mediaMTXAuthRequest{
 				Action: test.action,
-				Path:   "truck001/cam01/main",
+				Path:   test.path,
 				Token:  test.token,
 			})
 			if err != nil {

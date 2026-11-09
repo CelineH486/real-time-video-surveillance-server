@@ -16,6 +16,7 @@ import (
 type recordingPlayRequest struct {
 	Start    time.Time `json:"start"`
 	Duration float64   `json:"durationSeconds"`
+	Source   string    `json:"source"`
 }
 
 type RecordingController struct {
@@ -70,19 +71,34 @@ func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingDuration, apiresponse.MessageInvalidRecordingDuration)
 		return
 	}
+	if request.Source == "" {
+		request.Source = "main"
+	}
+	if !validRecordingSource(request.Source) {
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingPlayRequest, apiresponse.MessageInvalidRecordingPlayRequest)
+		return
+	}
 	if !c.cameraExists(w, truckID, cameraID) {
 		return
 	}
 	expires := services.RecordingAccessExpiry(time.Now(), request.Duration)
 	token := c.streams.SignRecordingAccess(truckID, cameraID, request.Start, request.Duration, expires)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"url":         c.recordings.PublicURL(truckID, cameraID, request.Start, request.Duration, token),
+		"url":         c.recordings.PublicURLForSource(truckID, cameraID, request.Source, request.Start, request.Duration, token),
 		"accessToken": token, "expiresAt": expires,
 	})
 }
 
 func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 	truckID, cameraID, token := r.PathValue("truckID"), r.PathValue("cameraID"), r.URL.Query().Get("token")
+	source := r.URL.Query().Get("source")
+	if source == "" {
+		source = "main"
+	}
+	if !validRecordingSource(source) {
+		writeError(w, http.StatusBadRequest, apiresponse.CodeInvalidRecordingPlayRequest, apiresponse.MessageInvalidRecordingPlayRequest)
+		return
+	}
 	claims, err := c.streams.ValidateRecordingAccess(token, time.Now())
 	if err != nil || claims.TruckID != truckID || claims.CameraID != cameraID {
 		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
@@ -103,9 +119,13 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	if err := c.recordings.Serve(w, r, truckID, cameraID, start, duration, token); err != nil {
+	if err := c.recordings.ServeSource(w, r, truckID, cameraID, source, start, duration, token); err != nil {
 		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingOpenUnavailable)
 	}
+}
+
+func validRecordingSource(source string) bool {
+	return source == "main" || source == "archive"
 }
 
 func (c *RecordingController) cameraExists(w http.ResponseWriter, truckID, cameraID string) bool {
