@@ -400,6 +400,13 @@ class _RecordingList extends StatelessWidget {
                                   ),
                                 ),
                                 Text(
+                                  recording.source == 'archive'
+                                      ? 'H.265'
+                                      : 'H.264',
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
                                   _formatDuration(recording.durationSeconds),
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
@@ -448,6 +455,7 @@ class _RecordingList extends StatelessWidget {
 
   bool _isSameRecording(Recording? first, Recording second) {
     return first?.start == second.start &&
+        first?.source == second.source &&
         first?.durationSeconds == second.durationSeconds;
   }
 
