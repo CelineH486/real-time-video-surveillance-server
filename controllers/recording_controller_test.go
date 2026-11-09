@@ -107,86 +107,177 @@ func expectRecordingStatus(t *testing.T, rec *httptest.ResponseRecorder, want in
 }
 
 func TestNewRecordingController(t *testing.T) {
-	controller := NewRecordingController(nil, nil, nil)
+	// Arrange
+	var database *sql.DB
+
+	// Act
+	controller := NewRecordingController(database, nil, nil)
+
+	// Assert
 	if controller == nil {
 		t.Fatal("NewRecordingController returned nil")
 	}
 }
 
 func TestRecordingController_List_Unauthorized(t *testing.T) {
+	// Arrange
 	controller := NewRecordingController(nil, nil, nil)
 	req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
 	rec := httptest.NewRecorder()
+
+	// Act
 	controller.List(rec, req)
+
+	// Assert
 	expectRecordingStatus(t, rec, http.StatusUnauthorized)
 }
 
 func TestRecordingController_Play_Unauthorized(t *testing.T) {
+	// Arrange
 	controller := NewRecordingController(nil, nil, nil)
 	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", "")
 	rec := httptest.NewRecorder()
+
+	// Act
 	controller.Play(rec, req)
+
+	// Assert
 	expectRecordingStatus(t, rec, http.StatusUnauthorized)
 }
 
-func TestRecordingController_List_AccessErrors(t *testing.T) {
-	cases := []struct {
-		name     string
-		allowed  bool
-		queryErr error
-		wantCode int
-	}{
-		{"Forbidden", false, nil, http.StatusForbidden},
-		{"AccessDatabaseError", false, errors.New("truck access query failed"), http.StatusServiceUnavailable},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			database, mock := newRecordingMock(t)
-			expectRecordingUser(mock)
-			expectRecordingAccess(mock, tc.allowed, tc.queryErr)
-			controller := NewRecordingController(database, nil, nil)
-			req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
-			rec := recordingAuthorizedRequest(database, controller.List, req)
-			expectRecordingStatus(t, rec, tc.wantCode)
-		})
-	}
+func TestRecordingController_List_AccessErrors_Forbidden(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, false, nil)
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusForbidden)
 }
 
-func TestRecordingController_List_Validation(t *testing.T) {
-	cases := []struct {
-		name         string
-		query        string
-		cameraCheck  bool
-		cameraExists bool
-		cameraError  error
-		wantCode     int
-	}{
-		{"MissingCameraID", "", false, false, nil, http.StatusBadRequest},
-		{"CameraNotFound", "cameraId=cam01", true, false, nil, http.StatusNotFound},
-		{"CameraLookupError", "cameraId=cam01", true, false, errors.New("camera lookup failed"), http.StatusInternalServerError},
-		{"InvalidStart", "cameraId=cam01&start=bad-time", true, true, nil, http.StatusBadRequest},
-		{"InvalidEnd", "cameraId=cam01&end=bad-time", true, true, nil, http.StatusBadRequest},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			database, mock := newRecordingMock(t)
-			expectRecordingUser(mock)
-			expectRecordingAccess(mock, true, nil)
-			if tc.cameraCheck {
-				expectRecordingCamera(mock, tc.cameraExists, tc.cameraError)
-			}
-			controller := NewRecordingController(database, nil, nil)
-			target := "/api/trucks/truck001/recordings"
-			if tc.query != "" {
-				target += "?" + tc.query
-			}
-			rec := recordingAuthorizedRequest(database, controller.List, recordingRequest(http.MethodGet, target, ""))
-			expectRecordingStatus(t, rec, tc.wantCode)
-		})
-	}
+func TestRecordingController_List_AccessErrors_AccessDatabaseError(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, false, errors.New("truck access query failed"))
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusServiceUnavailable)
+}
+
+func TestRecordingController_List_Validation_MissingCameraID(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	target := "/api/trucks/truck001/recordings"
+	req := recordingRequest(http.MethodGet, target, "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_List_Validation_CameraNotFound(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	expectRecordingCamera(mock, false, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	target := "/api/trucks/truck001/recordings"
+
+	target += "?" + "cameraId=cam01"
+	req := recordingRequest(http.MethodGet, target, "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusNotFound)
+}
+
+func TestRecordingController_List_Validation_CameraLookupError(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	expectRecordingCamera(mock, false, errors.New("camera lookup failed"))
+
+	controller := NewRecordingController(database, nil, nil)
+	target := "/api/trucks/truck001/recordings"
+
+	target += "?" + "cameraId=cam01"
+	req := recordingRequest(http.MethodGet, target, "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusInternalServerError)
+}
+
+func TestRecordingController_List_Validation_InvalidStart(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	expectRecordingCamera(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	target := "/api/trucks/truck001/recordings"
+
+	target += "?" + "cameraId=cam01&start=bad-time"
+	req := recordingRequest(http.MethodGet, target, "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_List_Validation_InvalidEnd(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	expectRecordingCamera(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	target := "/api/trucks/truck001/recordings"
+
+	target += "?" + "cameraId=cam01&end=bad-time"
+	req := recordingRequest(http.MethodGet, target, "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
 }
 
 func TestRecordingController_List_Success(t *testing.T) {
+	// Arrange
 	var upstreamCalled bool
 	// The local server verifies the exact request forwarded to MediaMTX.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +313,12 @@ func TestRecordingController_List_Success(t *testing.T) {
 	controller := NewRecordingController(database, recordings, streams)
 	target := "/api/trucks/truck001/recordings?cameraId=cam01&start=" +
 		url.QueryEscape(recordingStart) + "&end=" + url.QueryEscape("2026-10-20T09:00:00Z")
-	rec := recordingAuthorizedRequest(database, controller.List, recordingRequest(http.MethodGet, target, ""))
+	req := recordingRequest(http.MethodGet, target, "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
 	expectRecordingStatus(t, rec, http.StatusOK)
 	if !upstreamCalled {
 		t.Fatal("RecordingService did not call the MediaMTX test server")
@@ -236,81 +332,201 @@ func TestRecordingController_List_Success(t *testing.T) {
 	}
 }
 
-func TestRecordingController_List_UpstreamError(t *testing.T) {
-	cases := []struct {
-		name       string
-		statusCode int
-		body       string
-	}{
-		{"MediaMTXUnavailable", http.StatusServiceUnavailable, `{"error":"unavailable"}`},
-		{"InvalidMediaMTXJSON", http.StatusOK, `not-json`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tc.statusCode)
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			defer server.Close()
-			database, mock := newRecordingMock(t)
-			expectRecordingUser(mock)
-			expectRecordingAccess(mock, true, nil)
-			expectRecordingCamera(mock, true, nil)
-			recordings, streams := recordingServices(server.URL)
-			controller := NewRecordingController(database, recordings, streams)
-			req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
-			rec := recordingAuthorizedRequest(database, controller.List, req)
-			expectRecordingStatus(t, rec, http.StatusBadGateway)
-		})
-	}
+func TestRecordingController_List_UpstreamError_MediaMTXUnavailable(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"unavailable"}`))
+	}))
+	defer server.Close()
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+	expectRecordingCamera(mock, true, nil)
+	recordings, streams := recordingServices(server.URL)
+	controller := NewRecordingController(database, recordings, streams)
+	req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadGateway)
 }
 
-func TestRecordingController_Play_Validation(t *testing.T) {
-	cases := []struct {
-		name         string
-		body         string
-		cameraCheck  bool
-		cameraExists bool
-		cameraError  error
-		wantCode     int
-	}{
-		{"InvalidJSON", `not-json`, false, false, nil, http.StatusBadRequest},
-		{"MissingStart", `{"durationSeconds":30}`, false, false, nil, http.StatusBadRequest},
-		{"InvalidStart", `{"start":"wrong","durationSeconds":30}`, false, false, nil, http.StatusBadRequest},
-		{"ZeroDuration", `{"start":"` + recordingStart + `","durationSeconds":0}`, false, false, nil, http.StatusBadRequest},
-		{"NegativeDuration", `{"start":"` + recordingStart + `","durationSeconds":-1}`, false, false, nil, http.StatusBadRequest},
-		{"TooLongDuration", `{"start":"` + recordingStart + `","durationSeconds":86401}`, false, false, nil, http.StatusBadRequest},
-		{"CameraNotFound", `{"start":"` + recordingStart + `","durationSeconds":30}`, true, false, nil, http.StatusNotFound},
-		{"CameraLookupError", `{"start":"` + recordingStart + `","durationSeconds":30}`, true, false, errors.New("camera lookup failed"), http.StatusInternalServerError},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			database, mock := newRecordingMock(t)
-			expectRecordingUser(mock)
-			expectRecordingAccess(mock, true, nil)
-			if tc.cameraCheck {
-				expectRecordingCamera(mock, tc.cameraExists, tc.cameraError)
-			}
-			controller := NewRecordingController(database, nil, nil)
-			req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", tc.body)
-			rec := recordingAuthorizedRequest(database, controller.Play, req)
-			expectRecordingStatus(t, rec, tc.wantCode)
-		})
-	}
+func TestRecordingController_List_UpstreamError_InvalidMediaMTXJSON(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer server.Close()
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+	expectRecordingCamera(mock, true, nil)
+	recordings, streams := recordingServices(server.URL)
+	controller := NewRecordingController(database, recordings, streams)
+	req := recordingRequest(http.MethodGet, "/api/trucks/truck001/recordings?cameraId=cam01", "")
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.List, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadGateway)
+}
+
+func TestRecordingController_Play_Validation_InvalidJSON(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `not-json`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Play_Validation_MissingStart(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"durationSeconds":30}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Play_Validation_InvalidStart(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"start":"wrong","durationSeconds":30}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Play_Validation_ZeroDuration(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"start":"`+recordingStart+`","durationSeconds":0}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Play_Validation_NegativeDuration(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"start":"`+recordingStart+`","durationSeconds":-1}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Play_Validation_TooLongDuration(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"start":"`+recordingStart+`","durationSeconds":86401}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Play_Validation_CameraNotFound(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	expectRecordingCamera(mock, false, nil)
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"start":"`+recordingStart+`","durationSeconds":30}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusNotFound)
+}
+
+func TestRecordingController_Play_Validation_CameraLookupError(t *testing.T) {
+	// Arrange
+	database, mock := newRecordingMock(t)
+	expectRecordingUser(mock)
+	expectRecordingAccess(mock, true, nil)
+
+	expectRecordingCamera(mock, false, errors.New("camera lookup failed"))
+
+	controller := NewRecordingController(database, nil, nil)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", `{"start":"`+recordingStart+`","durationSeconds":30}`)
+
+	// Act
+	rec := recordingAuthorizedRequest(database, controller.Play, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusInternalServerError)
 }
 
 func TestRecordingController_Play_BodyTooLarge(t *testing.T) {
+	// Arrange
 	database, mock := newRecordingMock(t)
 	expectRecordingUser(mock)
 	expectRecordingAccess(mock, true, nil)
 	controller := NewRecordingController(database, nil, nil)
 	body := strings.Repeat("x", 65*1024)
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", body)
+
+	// Act
 	rec := recordingAuthorizedRequest(database, controller.Play,
-		recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", body))
+		req)
+
+	// Assert
 	expectRecordingStatus(t, rec, http.StatusBadRequest)
 }
 
 func TestRecordingController_Play_Success(t *testing.T) {
+	// Arrange
 	database, mock := newRecordingMock(t)
 	expectRecordingUser(mock)
 	expectRecordingAccess(mock, true, nil)
@@ -319,9 +535,14 @@ func TestRecordingController_Play_Success(t *testing.T) {
 	controller := NewRecordingController(database, recordings, streams)
 	body := `{"start":"` + recordingStart + `","durationSeconds":30.5}`
 	before := time.Now()
+	req := recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", body)
+
+	// Act
 	rec := recordingAuthorizedRequest(database, controller.Play,
-		recordingRequest(http.MethodPost, "/api/trucks/truck001/cameras/cam01/play", body))
+		req)
 	after := time.Now()
+
+	// Assert
 	expectRecordingStatus(t, rec, http.StatusOK)
 
 	var result struct {
@@ -371,150 +592,360 @@ func recordingContentRequest(token, start, duration string) *http.Request {
 		"/api/trucks/truck001/cameras/cam01/recordings/content?"+query.Encode(), "")
 }
 
-func TestRecordingController_Content_Unauthorized(t *testing.T) {
+func TestRecordingController_Content_Unauthorized_MissingToken(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest("", recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusUnauthorized)
+}
+
+func TestRecordingController_Content_Unauthorized_InvalidSignature(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest("invalid-token", recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusUnauthorized)
+}
+
+func TestRecordingController_Content_Unauthorized_WrongTruck(t *testing.T) {
+	// Arrange
 	streams := recordingStreamService()
 	wrongTruck := streams.SignRecordingAccess("other-truck", recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
-	wrongCamera := streams.SignRecordingAccess(recordingTruckID, "other-camera", recordingStartTime, 30, time.Now().Add(time.Hour))
-	wrongWindow := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime.Add(-time.Hour), 30, time.Now().Add(time.Hour))
-	expired := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(-time.Minute))
-	cases := []struct {
-		name  string
-		token string
-	}{
-		{"MissingToken", ""},
-		{"InvalidSignature", "invalid-token"},
-		{"WrongTruck", wrongTruck},
-		{"WrongCamera", wrongCamera},
-		{"WrongRecordingWindow", wrongWindow},
-		{"ExpiredToken", expired},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			controller := NewRecordingController(nil, nil, streams)
-			rec := httptest.NewRecorder()
-			controller.Content(rec, recordingContentRequest(tc.token, recordingStart, "30"))
-			expectRecordingStatus(t, rec, http.StatusUnauthorized)
-		})
-	}
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(wrongTruck, recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusUnauthorized)
 }
 
-func TestRecordingController_Content_Validation(t *testing.T) {
+func TestRecordingController_Content_Unauthorized_WrongCamera(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+
+	wrongCamera := streams.SignRecordingAccess(recordingTruckID, "other-camera", recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(wrongCamera, recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusUnauthorized)
+}
+
+func TestRecordingController_Content_Unauthorized_WrongRecordingWindow(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+
+	wrongWindow := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime.Add(-time.Hour), 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(wrongWindow, recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusUnauthorized)
+}
+
+func TestRecordingController_Content_Unauthorized_ExpiredToken(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+
+	expired := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(-time.Minute))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(expired, recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusUnauthorized)
+}
+
+func TestRecordingController_Content_Validation_MissingStart(t *testing.T) {
+	// Arrange
 	streams := recordingStreamService()
 	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
-	cases := []struct {
-		name     string
-		start    string
-		duration string
-	}{
-		{"MissingStart", "", "30"},
-		{"InvalidStart", "wrong", "30"},
-		{"MissingDuration", recordingStart, ""},
-		{"InvalidDuration", recordingStart, "abc"},
-		{"ZeroDuration", recordingStart, "0"},
-		{"NegativeDuration", recordingStart, "-10"},
-		{"TooLongDuration", recordingStart, "86401"},
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, "", "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_Validation_InvalidStart(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, "wrong", "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_Validation_MissingDuration(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_Validation_InvalidDuration(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "abc")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_Validation_ZeroDuration(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "0")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_Validation_NegativeDuration(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "-10")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_Validation_TooLongDuration(t *testing.T) {
+	// Arrange
+	streams := recordingStreamService()
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+
+	controller := NewRecordingController(nil, nil, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "86401")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadRequest)
+}
+
+func TestRecordingController_Content_UpstreamErrors_ConnectionFailed(t *testing.T) {
+	// Arrange
+	recordings, streams := recordingServices("http://127.0.0.1:1")
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+	controller := NewRecordingController(nil, recordings, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadGateway)
+}
+
+func TestRecordingController_Content_UpstreamErrors_MediaMTXRejected(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(server.Close)
+	recordings, streams := recordingServices(server.URL)
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+	controller := NewRecordingController(nil, recordings, streams)
+	rec := httptest.NewRecorder()
+	req := recordingContentRequest(token, recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusBadGateway)
+}
+
+func TestRecordingController_Content_Success_FullFile200(t *testing.T) {
+	// Arrange
+	var upstreamCalled bool
+	// Exercise full and ranged responses from materialized recording content.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled = true
+		if r.Method != http.MethodGet || r.URL.Path != "/get" || r.URL.Query().Get("path") != "truck001/cam01/main" {
+			t.Errorf("unexpected MediaMTX /get request: %s", r.URL.String())
+		}
+		if r.URL.Query().Get("start") != recordingStart || r.URL.Query().Get("duration") != "30" || r.URL.Query().Get("format") != "mp4" {
+			t.Errorf("unexpected MediaMTX recording parameters: %s", r.URL.RawQuery)
+		}
+		if r.Header.Get("Range") != "" {
+			t.Errorf("upstream Range header = %q, want empty", r.Header.Get("Range"))
+		}
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			t.Error("MediaMTX /get request is missing a Bearer token")
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", "4")
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ABCD"))
+	}))
+	defer server.Close()
+	recordings, streams := recordingServices(server.URL)
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+	controller := NewRecordingController(nil, recordings, streams)
+	req := recordingContentRequest(token, recordingStart, "30")
+
+	rec := httptest.NewRecorder()
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusOK)
+	if !upstreamCalled || rec.Body.String() != "ABCD" {
+		t.Errorf("response body = %q, want %q", rec.Body.String(), "ABCD")
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			controller := NewRecordingController(nil, nil, streams)
-			rec := httptest.NewRecorder()
-			controller.Content(rec, recordingContentRequest(token, tc.start, tc.duration))
-			expectRecordingStatus(t, rec, http.StatusBadRequest)
-		})
+	if rec.Header().Get("Content-Type") != "video/mp4" || rec.Header().Get("Accept-Ranges") != "bytes" ||
+		rec.Header().Get("Content-Length") != "4" || rec.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("recording response headers were not forwarded: %+v", rec.Header())
 	}
 }
 
-func TestRecordingController_Content_UpstreamErrors(t *testing.T) {
-	cases := []struct {
-		name    string
-		makeURL func(t *testing.T) string
-	}{
-		{"ConnectionFailed", func(t *testing.T) string { return "http://127.0.0.1:1" }},
-		{"MediaMTXRejected", func(t *testing.T) string {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusNotFound)
-			}))
-			t.Cleanup(server.Close)
-			return server.URL
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			recordings, streams := recordingServices(tc.makeURL(t))
-			token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
-			controller := NewRecordingController(nil, recordings, streams)
-			rec := httptest.NewRecorder()
-			controller.Content(rec, recordingContentRequest(token, recordingStart, "30"))
-			expectRecordingStatus(t, rec, http.StatusBadGateway)
-		})
-	}
-}
+func TestRecordingController_Content_Success_PartialFile206(t *testing.T) {
+	// Arrange
+	var upstreamCalled bool
+	// Exercise full and ranged responses from materialized recording content.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled = true
+		if r.Method != http.MethodGet || r.URL.Path != "/get" || r.URL.Query().Get("path") != "truck001/cam01/main" {
+			t.Errorf("unexpected MediaMTX /get request: %s", r.URL.String())
+		}
+		if r.URL.Query().Get("start") != recordingStart || r.URL.Query().Get("duration") != "30" || r.URL.Query().Get("format") != "mp4" {
+			t.Errorf("unexpected MediaMTX recording parameters: %s", r.URL.RawQuery)
+		}
+		if r.Header.Get("Range") != "" {
+			t.Errorf("upstream Range header = %q, want empty", r.Header.Get("Range"))
+		}
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			t.Error("MediaMTX /get request is missing a Bearer token")
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", "4")
 
-func TestRecordingController_Content_Success(t *testing.T) {
-	cases := []struct {
-		name      string
-		upstream  int
-		byteRange string
-	}{
-		{"FullFile200", http.StatusOK, ""},
-		{"PartialFile206", http.StatusPartialContent, "bytes=0-3"},
+		w.Header().Set("Content-Range", "bytes 0-3/100")
+
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("ABCD"))
+	}))
+	defer server.Close()
+	recordings, streams := recordingServices(server.URL)
+	token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
+	controller := NewRecordingController(nil, recordings, streams)
+	req := recordingContentRequest(token, recordingStart, "30")
+
+	req.Header.Set("Range", "bytes=0-3")
+
+	rec := httptest.NewRecorder()
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
+	expectRecordingStatus(t, rec, http.StatusPartialContent)
+	if !upstreamCalled || rec.Body.String() != "ABCD" {
+		t.Errorf("response body = %q, want %q", rec.Body.String(), "ABCD")
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var upstreamCalled bool
-			// Exercise full and ranged responses from materialized recording content.
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				upstreamCalled = true
-				if r.Method != http.MethodGet || r.URL.Path != "/get" || r.URL.Query().Get("path") != "truck001/cam01/main" {
-					t.Errorf("unexpected MediaMTX /get request: %s", r.URL.String())
-				}
-				if r.URL.Query().Get("start") != recordingStart || r.URL.Query().Get("duration") != "30" || r.URL.Query().Get("format") != "mp4" {
-					t.Errorf("unexpected MediaMTX recording parameters: %s", r.URL.RawQuery)
-				}
-				if r.Header.Get("Range") != "" {
-					t.Errorf("upstream Range header = %q, want empty", r.Header.Get("Range"))
-				}
-				if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
-					t.Error("MediaMTX /get request is missing a Bearer token")
-				}
-				w.Header().Set("Content-Type", "video/mp4")
-				w.Header().Set("Accept-Ranges", "bytes")
-				w.Header().Set("Content-Length", "4")
-				if tc.upstream == http.StatusPartialContent {
-					w.Header().Set("Content-Range", "bytes 0-3/100")
-				}
-				w.WriteHeader(tc.upstream)
-				_, _ = w.Write([]byte("ABCD"))
-			}))
-			defer server.Close()
-			recordings, streams := recordingServices(server.URL)
-			token := streams.SignRecordingAccess(recordingTruckID, recordingCameraID, recordingStartTime, 30, time.Now().Add(time.Hour))
-			controller := NewRecordingController(nil, recordings, streams)
-			req := recordingContentRequest(token, recordingStart, "30")
-			if tc.byteRange != "" {
-				req.Header.Set("Range", tc.byteRange)
-			}
-			rec := httptest.NewRecorder()
-			controller.Content(rec, req)
-			expectRecordingStatus(t, rec, tc.upstream)
-			if !upstreamCalled || rec.Body.String() != "ABCD" {
-				t.Errorf("response body = %q, want %q", rec.Body.String(), "ABCD")
-			}
-			if rec.Header().Get("Content-Type") != "video/mp4" || rec.Header().Get("Accept-Ranges") != "bytes" ||
-				rec.Header().Get("Content-Length") != "4" || rec.Header().Get("Cache-Control") != "private, no-store" {
-				t.Errorf("recording response headers were not forwarded: %+v", rec.Header())
-			}
-			if tc.upstream == http.StatusPartialContent && rec.Header().Get("Content-Range") != "bytes 0-3/4" {
-				t.Errorf("Content-Range = %q, want %q", rec.Header().Get("Content-Range"), "bytes 0-3/4")
-			}
-		})
+	if rec.Header().Get("Content-Type") != "video/mp4" || rec.Header().Get("Accept-Ranges") != "bytes" ||
+		rec.Header().Get("Content-Length") != "4" || rec.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("recording response headers were not forwarded: %+v", rec.Header())
+	}
+	if rec.Header().Get("Content-Range") != "bytes 0-3/4" {
+		t.Errorf("Content-Range = %q, want %q", rec.Header().Get("Content-Range"), "bytes 0-3/4")
 	}
 }
 
 func TestRecordingController_Content_ErrorResponseJSON(t *testing.T) {
+	// Arrange
 	controller := NewRecordingController(nil, nil, recordingStreamService())
 	rec := httptest.NewRecorder()
-	controller.Content(rec, recordingContentRequest("invalid", recordingStart, "30"))
+	req := recordingContentRequest("invalid", recordingStart, "30")
+
+	// Act
+	controller.Content(rec, req)
+
+	// Assert
 	expectRecordingStatus(t, rec, http.StatusUnauthorized)
 	if !json.Valid(rec.Body.Bytes()) {
 		t.Errorf("error response is not valid JSON: %q", rec.Body.String())

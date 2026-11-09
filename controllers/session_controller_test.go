@@ -76,7 +76,13 @@ func expectUserByEmail(mock sqlmock.Sqlmock, passwordHash string) {
 }
 
 func TestNewSessionController(t *testing.T) {
-	controller := NewSessionController(nil)
+	// Arrange
+	var database *sql.DB
+
+	// Act
+	controller := NewSessionController(database)
+
+	// Assert
 	if controller == nil {
 		t.Fatal("NewSessionController returned nil")
 	}
@@ -85,130 +91,277 @@ func TestNewSessionController(t *testing.T) {
 	}
 }
 
-func TestValidLoginPassword(t *testing.T) {
-	tests := []struct {
-		name     string
-		password string
-		want     bool
-	}{
-		{name: "valid", password: "Secure123", want: true},
-		{name: "too short", password: "Short1", want: false},
-		{name: "too long", password: strings.Repeat("A", 72) + "a1", want: false},
-		{name: "missing uppercase", password: "secure123", want: false},
-		{name: "missing lowercase", password: "SECURE123", want: false},
-		{name: "missing digit", password: "SecurePass", want: false},
-	}
+func TestValidLoginPassword_Valid(t *testing.T) {
+	// Arrange
+	password := "Secure123"
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := ValidLoginPassword(test.password); got != test.want {
-				t.Errorf("ValidLoginPassword(%q) = %v, want %v", test.password, got, test.want)
-			}
-		})
+	// Act
+	got := ValidLoginPassword(password)
+
+	// Assert
+	if !got {
+		t.Errorf("ValidLoginPassword(%q) = %v, want %v", password, got, true)
 	}
 }
 
-func TestValidLoginEmail(t *testing.T) {
-	tests := []struct {
-		name  string
-		email string
-		want  bool
-	}{
-		{name: "valid", email: "driver@example.com", want: true},
-		{name: "trims whitespace", email: "  driver@example.com  ", want: true},
-		{name: "case insensitive", email: "Driver@Example.COM", want: true},
-		{name: "missing at sign", email: "driver.example.com", want: false},
-		{name: "unsupported domain suffix", email: "driver@example.org", want: false},
-		{name: "embedded whitespace", email: "driver @example.com", want: false},
-	}
+func TestValidLoginPassword_TooShort(t *testing.T) {
+	// Arrange
+	password := "Short1"
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := ValidLoginEmail(test.email); got != test.want {
-				t.Errorf("ValidLoginEmail(%q) = %v, want %v", test.email, got, test.want)
-			}
-		})
+	// Act
+	got := ValidLoginPassword(password)
+
+	// Assert
+	if got {
+		t.Errorf("ValidLoginPassword(%q) = %v, want %v", password, got, false)
 	}
 }
 
-func TestSessionControllerLoginRejectsInvalidRequest(t *testing.T) {
-	tests := []struct {
-		name     string
-		body     string
-		wantCode string
-	}{
-		{name: "malformed JSON", body: `{"email":`, wantCode: apiresponse.CodeInvalidLogin},
-		{name: "unknown field", body: `{"email":"driver@example.com","password":"Secure123","extra":true}`, wantCode: apiresponse.CodeInvalidLogin},
-		{name: "invalid email", body: `{"email":"driver@example.org","password":"Secure123"}`, wantCode: apiresponse.CodeInvalidLogin},
-		{name: "invalid password", body: `{"email":"driver@example.com","password":"weak"}`, wantCode: apiresponse.CodeInvalidPasswordFormat},
-	}
+func TestValidLoginPassword_TooLong(t *testing.T) {
+	// Arrange
+	password := strings.Repeat("A", 72) + "a1"
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			controller := NewSessionController(nil)
-			recorder := httptest.NewRecorder()
+	// Act
+	got := ValidLoginPassword(password)
 
-			controller.Login(recorder, loginRequestForTest(test.body))
-
-			assertSessionError(t, recorder, http.StatusBadRequest, test.wantCode)
-		})
+	// Assert
+	if got {
+		t.Errorf("ValidLoginPassword(%q) = %v, want %v", password, got, false)
 	}
 }
 
-func TestSessionControllerLoginHandlesCredentialFailures(t *testing.T) {
-	tests := []struct {
-		name       string
-		prepareDB  func(*testing.T, sqlmock.Sqlmock)
-		wantStatus int
-		wantCode   string
-	}{
-		{
-			name: "database unavailable",
-			prepareDB: func(_ *testing.T, mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`FROM users\s+WHERE LOWER\(email\) = LOWER\(\$1\)`).
-					WithArgs(testLoginEmail).
-					WillReturnError(errors.New("database unavailable"))
-			},
-			wantStatus: http.StatusServiceUnavailable,
-			wantCode:   apiresponse.CodeAuthenticationUnavailable,
-		},
-		{
-			name: "user not found",
-			prepareDB: func(_ *testing.T, mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`FROM users\s+WHERE LOWER\(email\) = LOWER\(\$1\)`).
-					WithArgs(testLoginEmail).
-					WillReturnError(sql.ErrNoRows)
-			},
-			wantStatus: http.StatusUnauthorized,
-			wantCode:   apiresponse.CodeInvalidLogin,
-		},
-		{
-			name: "wrong password",
-			prepareDB: func(t *testing.T, mock sqlmock.Sqlmock) {
-				expectUserByEmail(mock, passwordHashForTest(t, "Different123"))
-			},
-			wantStatus: http.StatusUnauthorized,
-			wantCode:   apiresponse.CodeInvalidLogin,
-		},
+func TestValidLoginPassword_MissingUppercase(t *testing.T) {
+	// Arrange
+	password := "secure123"
+
+	// Act
+	got := ValidLoginPassword(password)
+
+	// Assert
+	if got {
+		t.Errorf("ValidLoginPassword(%q) = %v, want %v", password, got, false)
 	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			database, mock := newSessionMock(t)
-			test.prepareDB(t, mock)
-			controller := NewSessionController(database)
-			recorder := httptest.NewRecorder()
+func TestValidLoginPassword_MissingLowercase(t *testing.T) {
+	// Arrange
+	password := "SECURE123"
 
-			controller.Login(recorder, loginRequestForTest(
-				`{"email":"driver@example.com","password":"Secure123"}`,
-			))
+	// Act
+	got := ValidLoginPassword(password)
 
-			assertSessionError(t, recorder, test.wantStatus, test.wantCode)
-		})
+	// Assert
+	if got {
+		t.Errorf("ValidLoginPassword(%q) = %v, want %v", password, got, false)
 	}
+}
+
+func TestValidLoginPassword_MissingDigit(t *testing.T) {
+	// Arrange
+	password := "SecurePass"
+
+	// Act
+	got := ValidLoginPassword(password)
+
+	// Assert
+	if got {
+		t.Errorf("ValidLoginPassword(%q) = %v, want %v", password, got, false)
+	}
+}
+
+func TestValidLoginEmail_Valid(t *testing.T) {
+	// Arrange
+	email := "driver@example.com"
+
+	// Act
+	got := ValidLoginEmail(email)
+
+	// Assert
+	if !got {
+		t.Errorf("ValidLoginEmail(%q) = %v, want %v", email, got, true)
+	}
+}
+
+func TestValidLoginEmail_TrimsWhitespace(t *testing.T) {
+	// Arrange
+	email := "  driver@example.com  "
+
+	// Act
+	got := ValidLoginEmail(email)
+
+	// Assert
+	if !got {
+		t.Errorf("ValidLoginEmail(%q) = %v, want %v", email, got, true)
+	}
+}
+
+func TestValidLoginEmail_CaseInsensitive(t *testing.T) {
+	// Arrange
+	email := "Driver@Example.COM"
+
+	// Act
+	got := ValidLoginEmail(email)
+
+	// Assert
+	if !got {
+		t.Errorf("ValidLoginEmail(%q) = %v, want %v", email, got, true)
+	}
+}
+
+func TestValidLoginEmail_MissingAtSign(t *testing.T) {
+	// Arrange
+	email := "driver.example.com"
+
+	// Act
+	got := ValidLoginEmail(email)
+
+	// Assert
+	if got {
+		t.Errorf("ValidLoginEmail(%q) = %v, want %v", email, got, false)
+	}
+}
+
+func TestValidLoginEmail_UnsupportedDomainSuffix(t *testing.T) {
+	// Arrange
+	email := "driver@example.org"
+
+	// Act
+	got := ValidLoginEmail(email)
+
+	// Assert
+	if got {
+		t.Errorf("ValidLoginEmail(%q) = %v, want %v", email, got, false)
+	}
+}
+
+func TestValidLoginEmail_EmbeddedWhitespace(t *testing.T) {
+	// Arrange
+	email := "driver @example.com"
+
+	// Act
+	got := ValidLoginEmail(email)
+
+	// Assert
+	if got {
+		t.Errorf("ValidLoginEmail(%q) = %v, want %v", email, got, false)
+	}
+}
+
+func TestSessionControllerLoginRejectsInvalidRequest_MalformedJSON(t *testing.T) {
+	// Arrange
+	controller := NewSessionController(nil)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(`{"email":`)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLogin)
+}
+
+func TestSessionControllerLoginRejectsInvalidRequest_UnknownField(t *testing.T) {
+	// Arrange
+	controller := NewSessionController(nil)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(`{"email":"driver@example.com","password":"Secure123","extra":true}`)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLogin)
+}
+
+func TestSessionControllerLoginRejectsInvalidRequest_InvalidEmail(t *testing.T) {
+	// Arrange
+	controller := NewSessionController(nil)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(`{"email":"driver@example.org","password":"Secure123"}`)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLogin)
+}
+
+func TestSessionControllerLoginRejectsInvalidRequest_InvalidPassword(t *testing.T) {
+	// Arrange
+	controller := NewSessionController(nil)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(`{"email":"driver@example.com","password":"weak"}`)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidPasswordFormat)
+}
+
+func TestSessionControllerLoginHandlesCredentialFailures_DatabaseUnavailable(t *testing.T) {
+	// Arrange
+	database, mock := newSessionMock(t)
+
+	mock.ExpectQuery(`FROM users\s+WHERE LOWER\(email\) = LOWER\(\$1\)`).
+		WithArgs(testLoginEmail).
+		WillReturnError(errors.New("database unavailable"))
+
+	controller := NewSessionController(database)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(
+		`{"email":"driver@example.com","password":"Secure123"}`,
+	)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeAuthenticationUnavailable)
+}
+
+func TestSessionControllerLoginHandlesCredentialFailures_UserNotFound(t *testing.T) {
+	// Arrange
+	database, mock := newSessionMock(t)
+
+	mock.ExpectQuery(`FROM users\s+WHERE LOWER\(email\) = LOWER\(\$1\)`).
+		WithArgs(testLoginEmail).
+		WillReturnError(sql.ErrNoRows)
+
+	controller := NewSessionController(database)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(
+		`{"email":"driver@example.com","password":"Secure123"}`,
+	)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusUnauthorized, apiresponse.CodeInvalidLogin)
+}
+
+func TestSessionControllerLoginHandlesCredentialFailures_WrongPassword(t *testing.T) {
+	// Arrange
+	database, mock := newSessionMock(t)
+
+	expectUserByEmail(mock, passwordHashForTest(t, "Different123"))
+
+	controller := NewSessionController(database)
+	recorder := httptest.NewRecorder()
+	req := loginRequestForTest(
+		`{"email":"driver@example.com","password":"Secure123"}`,
+	)
+
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusUnauthorized, apiresponse.CodeInvalidLogin)
 }
 
 func TestSessionControllerLoginReportsTokenStorageFailure(t *testing.T) {
+	// Arrange
 	database, mock := newSessionMock(t)
 	expectUserByEmail(mock, passwordHashForTest(t, testLoginPassword))
 	mock.ExpectExec(`INSERT INTO user_api_tokens`).
@@ -216,15 +369,19 @@ func TestSessionControllerLoginReportsTokenStorageFailure(t *testing.T) {
 		WillReturnError(errors.New("token storage unavailable"))
 	controller := NewSessionController(database)
 	recorder := httptest.NewRecorder()
-
-	controller.Login(recorder, loginRequestForTest(
+	req := loginRequestForTest(
 		`{"email":"driver@example.com","password":"Secure123"}`,
-	))
+	)
 
+	// Act
+	controller.Login(recorder, req)
+
+	// Assert
 	assertSessionError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeAuthenticationUnavailable)
 }
 
 func TestSessionControllerLoginSuccess(t *testing.T) {
+	// Arrange
 	database, mock := newSessionMock(t)
 	expectUserByEmail(mock, passwordHashForTest(t, testLoginPassword))
 	mock.ExpectExec(`INSERT INTO user_api_tokens`).
@@ -233,12 +390,15 @@ func TestSessionControllerLoginSuccess(t *testing.T) {
 	controller := NewSessionController(database)
 	recorder := httptest.NewRecorder()
 	before := time.Now()
-
-	controller.Login(recorder, loginRequestForTest(
+	req := loginRequestForTest(
 		`{"email":"  driver@example.com  ","password":"Secure123"}`,
-	))
+	)
+
+	// Act
+	controller.Login(recorder, req)
 	after := time.Now()
 
+	// Assert
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
@@ -264,96 +424,145 @@ func TestSessionControllerLoginSuccess(t *testing.T) {
 	}
 }
 
-func TestSessionControllerLogout(t *testing.T) {
-	tests := []struct {
-		name       string
-		header     string
-		prepareDB  func(sqlmock.Sqlmock)
-		wantStatus int
-		wantCode   string
-	}{
-		{
-			name:       "missing bearer token",
-			wantStatus: http.StatusUnauthorized,
-			wantCode:   apiresponse.CodeMissingBearerToken,
-		},
-		{
-			name:   "database unavailable",
-			header: "Bearer logout-token",
-			prepareDB: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(`DELETE FROM user_api_tokens WHERE token_hash = \$1`).
-					WithArgs(db.APITokenHash("logout-token")).
-					WillReturnError(errors.New("delete failed"))
-			},
-			wantStatus: http.StatusServiceUnavailable,
-			wantCode:   apiresponse.CodeLogoutUnavailable,
-		},
-		{
-			name:   "success",
-			header: "Bearer logout-token",
-			prepareDB: func(mock sqlmock.Sqlmock) {
-				mock.ExpectExec(`DELETE FROM user_api_tokens WHERE token_hash = \$1`).
-					WithArgs(db.APITokenHash("logout-token")).
-					WillReturnResult(sqlmock.NewResult(0, 1))
-			},
-			wantStatus: http.StatusNoContent,
-		},
+func TestSessionControllerLogout_MissingBearerToken(t *testing.T) {
+	// Arrange
+	controller := NewSessionController(nil)
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "")
+
+	// Act
+	controller.Logout(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusUnauthorized, apiresponse.CodeMissingBearerToken)
+}
+
+func TestSessionControllerLogout_DatabaseUnavailable(t *testing.T) {
+	// Arrange
+	database, mock := newSessionMock(t)
+
+	mock.ExpectExec(`DELETE FROM user_api_tokens WHERE token_hash = \$1`).
+		WithArgs(db.APITokenHash("logout-token")).
+		WillReturnError(errors.New("delete failed"))
+
+	controller := NewSessionController(database)
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "Bearer logout-token")
+
+	// Act
+	controller.Logout(recorder, req)
+
+	// Assert
+	assertSessionError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeLogoutUnavailable)
+}
+
+func TestSessionControllerLogout_Success(t *testing.T) {
+	// Arrange
+	database, mock := newSessionMock(t)
+
+	mock.ExpectExec(`DELETE FROM user_api_tokens WHERE token_hash = \$1`).
+		WithArgs(db.APITokenHash("logout-token")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	controller := NewSessionController(database)
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "Bearer logout-token")
+
+	// Act
+	controller.Logout(recorder, req)
+
+	// Assert
+	if recorder.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", recorder.Code, http.StatusNoContent)
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var database *sql.DB
-			if test.prepareDB != nil {
-				var mock sqlmock.Sqlmock
-				database, mock = newSessionMock(t)
-				test.prepareDB(mock)
-			}
-			controller := NewSessionController(database)
-			recorder := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
-			req.Header.Set("Authorization", test.header)
-
-			controller.Logout(recorder, req)
-
-			if test.wantCode != "" {
-				assertSessionError(t, recorder, test.wantStatus, test.wantCode)
-				return
-			}
-			if recorder.Code != test.wantStatus {
-				t.Errorf("status = %d, want %d", recorder.Code, test.wantStatus)
-			}
-			if recorder.Body.Len() != 0 {
-				t.Errorf("response body = %q, want empty body", recorder.Body.String())
-			}
-		})
+	if recorder.Body.Len() != 0 {
+		t.Errorf("response body = %q, want empty body", recorder.Body.String())
 	}
 }
 
-func TestBearerTokenFromRequest(t *testing.T) {
-	tests := []struct {
-		name      string
-		header    string
-		wantToken string
-		wantOK    bool
-	}{
-		{name: "valid", header: "Bearer session-token", wantToken: "session-token", wantOK: true},
-		{name: "case insensitive", header: "bearer session-token", wantToken: "session-token", wantOK: true},
-		{name: "trims whitespace", header: "  Bearer   session-token  ", wantToken: "session-token", wantOK: true},
-		{name: "missing token", header: "Bearer", wantOK: false},
-		{name: "empty token", header: "Bearer   ", wantOK: false},
-		{name: "wrong scheme", header: "Basic session-token", wantToken: "session-token", wantOK: false},
+func TestBearerTokenFromRequest_Valid(t *testing.T) {
+	// Arrange
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "Bearer session-token")
+
+	// Act
+	token, ok := bearerTokenFromRequest(req)
+
+	// Assert
+	if token != "session-token" || !ok {
+		t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, "session-token", true)
 	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
-			req.Header.Set("Authorization", test.header)
+func TestBearerTokenFromRequest_CaseInsensitive(t *testing.T) {
+	// Arrange
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "bearer session-token")
 
-			token, ok := bearerTokenFromRequest(req)
+	// Act
+	token, ok := bearerTokenFromRequest(req)
 
-			if token != test.wantToken || ok != test.wantOK {
-				t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, test.wantToken, test.wantOK)
-			}
-		})
+	// Assert
+	if token != "session-token" || !ok {
+		t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, "session-token", true)
+	}
+}
+
+func TestBearerTokenFromRequest_TrimsWhitespace(t *testing.T) {
+	// Arrange
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "  Bearer   session-token  ")
+
+	// Act
+	token, ok := bearerTokenFromRequest(req)
+
+	// Assert
+	if token != "session-token" || !ok {
+		t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, "session-token", true)
+	}
+}
+
+func TestBearerTokenFromRequest_MissingToken(t *testing.T) {
+	// Arrange
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "Bearer")
+
+	// Act
+	token, ok := bearerTokenFromRequest(req)
+
+	// Assert
+	if token != "" || ok {
+		t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, "", false)
+	}
+}
+
+func TestBearerTokenFromRequest_EmptyToken(t *testing.T) {
+	// Arrange
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "Bearer   ")
+
+	// Act
+	token, ok := bearerTokenFromRequest(req)
+
+	// Assert
+	if token != "" || ok {
+		t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, "", false)
+	}
+}
+
+func TestBearerTokenFromRequest_WrongScheme(t *testing.T) {
+	// Arrange
+	req := httptest.NewRequest(http.MethodDelete, "/sessions/current", nil)
+	req.Header.Set("Authorization", "Basic session-token")
+
+	// Act
+	token, ok := bearerTokenFromRequest(req)
+
+	// Assert
+	if token != "session-token" || ok {
+		t.Errorf("bearerTokenFromRequest() = (%q, %v), want (%q, %v)", token, ok, "session-token", false)
 	}
 }

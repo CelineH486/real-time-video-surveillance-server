@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,35 +17,46 @@ import (
 )
 
 func TestNewCameraController(t *testing.T) {
-	controller := NewCameraController(nil, nil)
+	// Arrange
+	var database *sql.DB
 
+	// Act
+	controller := NewCameraController(database, nil)
+
+	// Assert
 	if controller == nil {
 		t.Fatal("NewCameraController returned nil")
 	}
 }
 
 func TestCameraController_List_Unauthorized(t *testing.T) {
+	// Arrange
 	controller := NewCameraController(nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/cameras", nil)
 	rec := httptest.NewRecorder()
 
+	// Act
 	controller.List(rec, req)
 
+	// Assert
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 
 func TestCameraController_ListByTruck_Unauthorized(t *testing.T) {
+	// Arrange
 	controller := NewCameraController(nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/trucks/truck001/cameras", nil)
 	req.SetPathValue("truckID", "truck001")
 	rec := httptest.NewRecorder()
 
+	// Act
 	controller.ListByTruck(rec, req)
 
+	// Assert
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf(
 			"status = %d, want %d",
@@ -55,7 +67,7 @@ func TestCameraController_ListByTruck_Unauthorized(t *testing.T) {
 }
 
 func TestCameraController_List_Success(t *testing.T) {
-
+	// Arrange
 	database, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("create SQL mock: %v", err)
@@ -108,8 +120,11 @@ func TestCameraController_List_Success(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler := auth.Middleware(controller.List)
+
+	// Act
 	handler(rec, req)
 
+	// Assert
 	if rec.Code != http.StatusOK {
 		t.Fatalf(
 			"status = %d, want %d",
@@ -128,7 +143,7 @@ func TestCameraController_List_Success(t *testing.T) {
 }
 
 func TestCameraController_ListByTruck_Success(t *testing.T) {
-
+	// Arrange
 	database, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("create SQL mock: %v", err)
@@ -195,9 +210,12 @@ func TestCameraController_ListByTruck_Success(t *testing.T) {
 
 	handler := auth.Middleware(controller.ListByTruck)
 	before := time.Now()
+
+	// Act
 	handler(rec, req)
 	after := time.Now()
 
+	// Assert
 	if rec.Code != http.StatusOK {
 		t.Fatalf(
 			"status = %d, want %d; body = %s",
@@ -270,7 +288,7 @@ func TestCameraController_ListByTruck_Success(t *testing.T) {
 }
 
 func TestCameraController_List_DatabaseError(t *testing.T) {
-
+	// Arrange
 	database, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("create SQL mock: %v", err)
@@ -310,8 +328,11 @@ func TestCameraController_List_DatabaseError(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler := auth.Middleware(controller.List)
+
+	// Act
 	handler(rec, req)
 
+	// Assert
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf(
 			"status = %d, want %d; body = %s",
@@ -327,7 +348,7 @@ func TestCameraController_List_DatabaseError(t *testing.T) {
 }
 
 func TestCameraController_ListByTruck_DatabaseError(t *testing.T) {
-
+	// Arrange
 	database, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("create SQL mock: %v", err)
@@ -379,8 +400,11 @@ func TestCameraController_ListByTruck_DatabaseError(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler := auth.Middleware(controller.ListByTruck)
+
+	// Act
 	handler(rec, req)
 
+	// Assert
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf(
 			"status = %d, want %d; body = %s",

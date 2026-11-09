@@ -85,7 +85,13 @@ func assertLocationError(t *testing.T, recorder *httptest.ResponseRecorder, stat
 }
 
 func TestNewLocationController(t *testing.T) {
-	controller := NewLocationController(nil)
+	// Arrange
+	var database *sql.DB
+
+	// Act
+	controller := NewLocationController(database)
+
+	// Assert
 	if controller == nil {
 		t.Fatal("NewLocationController returned nil")
 	}
@@ -98,172 +104,217 @@ func TestNewLocationController(t *testing.T) {
 }
 
 func TestLocationControllerCurrentRequiresAuthentication(t *testing.T) {
+	// Arrange
 	controller := NewLocationController(nil)
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/trucks/truck-1/location", nil)
 	req.SetPathValue("truckID", "truck-1")
 
+	// Act
 	controller.Current(recorder, req)
 
+	// Assert
 	assertLocationError(t, recorder, http.StatusUnauthorized, apiresponse.CodeAuthenticationRequired)
 }
 
-func TestLocationControllerCurrent(t *testing.T) {
-	tests := []struct {
-		name       string
-		locationDB func(sqlmock.Sqlmock)
-		wantStatus int
-		wantCode   string
-	}{
-		{
-			name: "returns current location",
-			locationDB: func(mock sqlmock.Sqlmock) {
-				stoppedSince := fixedLocationTime.Add(-90 * time.Second)
-				mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
-					WillReturnRows(locationRows(models.TruckLocation{
-						TruckID: "truck-1", Latitude: 25.033, Longitude: 121.5654,
-						SpeedKmh: 0, FixQuality: 1, RecordedAt: fixedLocationTime.Add(-time.Minute),
-						ReceivedAt: fixedLocationTime.Add(-time.Minute), StoppedSince: &stoppedSince,
-					}))
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns not found",
-			locationDB: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
-					WillReturnError(sql.ErrNoRows)
-			},
-			wantStatus: http.StatusNotFound,
-			wantCode:   apiresponse.CodeLocationNotFound,
-		},
-		{
-			name: "reports database failure",
-			locationDB: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
-					WillReturnError(errors.New("database unavailable"))
-			},
-			wantStatus: http.StatusServiceUnavailable,
-			wantCode:   apiresponse.CodeLocationUnavailable,
-		},
+func TestLocationControllerCurrent_ReturnsCurrentLocation(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+
+	stoppedSince := fixedLocationTime.Add(-90 * time.Second)
+	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
+		WillReturnRows(locationRows(models.TruckLocation{
+			TruckID: "truck-1", Latitude: 25.033, Longitude: 121.5654,
+			SpeedKmh: 0, FixQuality: 1, RecordedAt: fixedLocationTime.Add(-time.Minute),
+			ReceivedAt: fixedLocationTime.Add(-time.Minute), StoppedSince: &stoppedSince,
+		}))
+
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodGet, "/trucks/truck-1/location", "")
+
+	handler := services.NewAuthService(database).Middleware(controller.Current)
+
+	// Act
+	handler(recorder, req)
+
+	// Assert
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			database, mock := newLocationMock(t)
-			expectLocationAuthentication(mock, true)
-			test.locationDB(mock)
-			controller := NewLocationController(database)
-			controller.now = func() time.Time { return fixedLocationTime }
-			recorder := httptest.NewRecorder()
-
-			services.NewAuthService(database).Middleware(controller.Current)(
-				recorder,
-				locationRequest(http.MethodGet, "/trucks/truck-1/location", ""),
-			)
-
-			if test.wantCode != "" {
-				assertLocationError(t, recorder, test.wantStatus, test.wantCode)
-				return
-			}
-			if recorder.Code != test.wantStatus {
-				t.Fatalf("status = %d, want %d; body = %s", recorder.Code, test.wantStatus, recorder.Body.String())
-			}
-			var location models.TruckLocation
-			if err := json.Unmarshal(recorder.Body.Bytes(), &location); err != nil {
-				t.Fatalf("decode location response: %v", err)
-			}
-			if location.TruckID != "truck-1" || location.StoppedSeconds == nil || *location.StoppedSeconds != 90 {
-				t.Errorf("unexpected current location: %+v", location)
-			}
-		})
+	var location models.TruckLocation
+	if err := json.Unmarshal(recorder.Body.Bytes(), &location); err != nil {
+		t.Fatalf("decode location response: %v", err)
+	}
+	if location.TruckID != "truck-1" || location.StoppedSeconds == nil || *location.StoppedSeconds != 90 {
+		t.Errorf("unexpected current location: %+v", location)
 	}
 }
 
+func TestLocationControllerCurrent_ReturnsNotFound(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+
+	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
+		WillReturnError(sql.ErrNoRows)
+
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodGet, "/trucks/truck-1/location", "")
+
+	handler := services.NewAuthService(database).Middleware(controller.Current)
+
+	// Act
+	handler(recorder, req)
+
+	// Assert
+	assertLocationError(t, recorder, http.StatusNotFound, apiresponse.CodeLocationNotFound)
+}
+
+func TestLocationControllerCurrent_ReportsDatabaseFailure(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+
+	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
+		WillReturnError(errors.New("database unavailable"))
+
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodGet, "/trucks/truck-1/location", "")
+
+	handler := services.NewAuthService(database).Middleware(controller.Current)
+
+	// Act
+	handler(recorder, req)
+
+	// Assert
+	assertLocationError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeLocationUnavailable)
+}
+
 func TestLocationControllerCurrentRejectsUnassignedTruck(t *testing.T) {
+	// Arrange
 	database, mock := newLocationMock(t)
 	expectLocationAuthentication(mock, false)
 	controller := NewLocationController(database)
 	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodGet, "/trucks/truck-1/location", "")
 
-	services.NewAuthService(database).Middleware(controller.Current)(
-		recorder,
-		locationRequest(http.MethodGet, "/trucks/truck-1/location", ""),
-	)
+	handler := services.NewAuthService(database).Middleware(controller.Current)
 
+	// Act
+	handler(recorder, req)
+
+	// Assert
 	assertLocationError(t, recorder, http.StatusForbidden, apiresponse.CodeTruckAccessDenied)
 }
 
-func TestLocationControllerCreateRejectsInvalidInput(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-	}{
-		{name: "malformed JSON", body: `{"latitude":`},
-		{name: "unknown field", body: `{"latitude":25,"longitude":121,"speedKmh":5,"fixQuality":1,"extra":true}`},
-		{name: "invalid coordinates", body: `{"latitude":91,"longitude":121,"speedKmh":5,"fixQuality":1}`},
-	}
+func TestLocationControllerCreateRejectsInvalidInput_MalformedJSON(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodPost, "/trucks/truck-1/location", `{"latitude":`)
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			database, mock := newLocationMock(t)
-			expectLocationAuthentication(mock, true)
-			controller := NewLocationController(database)
-			controller.now = func() time.Time { return fixedLocationTime }
-			recorder := httptest.NewRecorder()
+	handler := services.NewAuthService(database).Middleware(controller.Create)
 
-			services.NewAuthService(database).Middleware(controller.Create)(
-				recorder,
-				locationRequest(http.MethodPost, "/trucks/truck-1/location", test.body),
-			)
+	// Act
+	handler(recorder, req)
 
-			assertLocationError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLocation)
-		})
-	}
+	// Assert
+	assertLocationError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLocation)
 }
 
-func TestLocationControllerCreateReportsReadAndWriteFailures(t *testing.T) {
-	tests := []struct {
-		name      string
-		prepareDB func(sqlmock.Sqlmock)
-	}{
-		{
-			name: "current location read fails",
-			prepareDB: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
-					WillReturnError(errors.New("read failed"))
-			},
-		},
-		{
-			name: "location write fails",
-			prepareDB: func(mock sqlmock.Sqlmock) {
-				mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
-					WillReturnError(sql.ErrNoRows)
-				mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
-			},
-		},
-	}
+func TestLocationControllerCreateRejectsInvalidInput_UnknownField(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodPost, "/trucks/truck-1/location", `{"latitude":25,"longitude":121,"speedKmh":5,"fixQuality":1,"extra":true}`)
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			database, mock := newLocationMock(t)
-			expectLocationAuthentication(mock, true)
-			test.prepareDB(mock)
-			controller := NewLocationController(database)
-			controller.now = func() time.Time { return fixedLocationTime }
-			recorder := httptest.NewRecorder()
+	handler := services.NewAuthService(database).Middleware(controller.Create)
 
-			services.NewAuthService(database).Middleware(controller.Create)(
-				recorder,
-				locationRequest(http.MethodPost, "/trucks/truck-1/location", `{"latitude":25.033,"longitude":121.5654,"speedKmh":8,"fixQuality":1}`),
-			)
+	// Act
+	handler(recorder, req)
 
-			assertLocationError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeLocationUnavailable)
-		})
-	}
+	// Assert
+	assertLocationError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLocation)
+}
+
+func TestLocationControllerCreateRejectsInvalidInput_InvalidCoordinates(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodPost, "/trucks/truck-1/location", `{"latitude":91,"longitude":121,"speedKmh":5,"fixQuality":1}`)
+
+	handler := services.NewAuthService(database).Middleware(controller.Create)
+
+	// Act
+	handler(recorder, req)
+
+	// Assert
+	assertLocationError(t, recorder, http.StatusBadRequest, apiresponse.CodeInvalidLocation)
+}
+
+func TestLocationControllerCreateReportsReadAndWriteFailures_CurrentLocationReadFails(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+
+	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
+		WillReturnError(errors.New("read failed"))
+
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodPost, "/trucks/truck-1/location", `{"latitude":25.033,"longitude":121.5654,"speedKmh":8,"fixQuality":1}`)
+
+	handler := services.NewAuthService(database).Middleware(controller.Create)
+
+	// Act
+	handler(recorder, req)
+
+	// Assert
+	assertLocationError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeLocationUnavailable)
+}
+
+func TestLocationControllerCreateReportsReadAndWriteFailures_LocationWriteFails(t *testing.T) {
+	// Arrange
+	database, mock := newLocationMock(t)
+	expectLocationAuthentication(mock, true)
+
+	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin().WillReturnError(errors.New("begin failed"))
+
+	controller := NewLocationController(database)
+	controller.now = func() time.Time { return fixedLocationTime }
+	recorder := httptest.NewRecorder()
+	req := locationRequest(http.MethodPost, "/trucks/truck-1/location", `{"latitude":25.033,"longitude":121.5654,"speedKmh":8,"fixQuality":1}`)
+
+	handler := services.NewAuthService(database).Middleware(controller.Create)
+
+	// Act
+	handler(recorder, req)
+
+	// Assert
+	assertLocationError(t, recorder, http.StatusServiceUnavailable, apiresponse.CodeLocationUnavailable)
 }
 
 func TestLocationControllerCreateSavesAndBroadcastsLocation(t *testing.T) {
+	// Arrange
 	database, mock := newLocationMock(t)
 	expectLocationAuthentication(mock, true)
 	recordedAt := fixedLocationTime.Add(-30 * time.Second)
@@ -301,12 +352,14 @@ func TestLocationControllerCreateSavesAndBroadcastsLocation(t *testing.T) {
 	defer unsubscribe()
 	recorder := httptest.NewRecorder()
 	body := `{"latitude":25.03301,"longitude":121.56541,"speedKmh":0,"fixQuality":1,"recordedAt":"` + recordedAt.Format(time.RFC3339) + `"}`
+	req := locationRequest(http.MethodPost, "/trucks/truck-1/location", body)
 
-	services.NewAuthService(database).Middleware(controller.Create)(
-		recorder,
-		locationRequest(http.MethodPost, "/trucks/truck-1/location", body),
-	)
+	handler := services.NewAuthService(database).Middleware(controller.Create)
 
+	// Act
+	handler(recorder, req)
+
+	// Assert
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusCreated, recorder.Body.String())
 	}
@@ -328,14 +381,17 @@ func TestLocationControllerCreateSavesAndBroadcastsLocation(t *testing.T) {
 }
 
 func TestLocationBroadcastKeepsNewestUpdate(t *testing.T) {
+	// Arrange
 	controller := NewLocationController(nil)
 	updates, unsubscribe := controller.subscribe("truck-1")
 	defer unsubscribe()
 
+	// Act
 	controller.broadcast(models.TruckLocation{TruckID: "other-truck", Latitude: 1})
 	controller.broadcast(models.TruckLocation{TruckID: "truck-1", Latitude: 24.1})
 	controller.broadcast(models.TruckLocation{TruckID: "truck-1", Latitude: 24.2})
 
+	// Assert
 	select {
 	case location := <-updates:
 		if location.Latitude != 24.2 {
@@ -347,21 +403,28 @@ func TestLocationBroadcastKeepsNewestUpdate(t *testing.T) {
 }
 
 func TestLocationSubscribeUnsubscribeRemovesEmptyTruckEntry(t *testing.T) {
+	// Arrange
 	controller := NewLocationController(nil)
 	_, unsubscribeFirst := controller.subscribe("truck-1")
 	_, unsubscribeSecond := controller.subscribe("truck-1")
 
+	// Act
 	unsubscribeFirst()
-	if got := len(controller.subscribers["truck-1"]); got != 1 {
-		t.Fatalf("subscriber count = %d, want 1", got)
-	}
+	remainingSubscribers := len(controller.subscribers["truck-1"])
 	unsubscribeSecond()
-	if _, exists := controller.subscribers["truck-1"]; exists {
+	_, exists := controller.subscribers["truck-1"]
+
+	// Assert
+	if remainingSubscribers != 1 {
+		t.Fatalf("subscriber count = %d, want 1", remainingSubscribers)
+	}
+	if exists {
 		t.Error("truck subscriber entry still exists after the last unsubscribe")
 	}
 }
 
 func TestLocationControllerStreamSendsBroadcast(t *testing.T) {
+	// Arrange
 	database, mock := newLocationMock(t)
 	expectLocationAuthentication(mock, true)
 	controller := NewLocationController(database)
@@ -373,6 +436,13 @@ func TestLocationControllerStreamSendsBroadcast(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	streamURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/trucks/truck-1/stream"
+	want := models.TruckLocation{
+		TruckID: "truck-1", Latitude: 25.033, Longitude: 121.5654,
+		SpeedKmh: 12, FixQuality: 1, RecordedAt: fixedLocationTime, ReceivedAt: fixedLocationTime,
+	}
+	var got models.TruckLocation
+
+	// Act
 	conn, _, err := websocket.Dial(ctx, streamURL, &websocket.DialOptions{
 		Subprotocols: []string{"bearer", "test-token"},
 	})
@@ -396,19 +466,18 @@ func TestLocationControllerStreamSendsBroadcast(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	want := models.TruckLocation{
-		TruckID: "truck-1", Latitude: 25.033, Longitude: 121.5654,
-		SpeedKmh: 12, FixQuality: 1, RecordedAt: fixedLocationTime, ReceivedAt: fixedLocationTime,
-	}
 	controller.broadcast(want)
-	var got models.TruckLocation
-	if err := wsjson.Read(ctx, conn, &got); err != nil {
-		t.Fatalf("read streamed location: %v", err)
+	readErr := wsjson.Read(ctx, conn, &got)
+	closeErr := conn.Close(websocket.StatusNormalClosure, "test complete")
+
+	// Assert
+	if readErr != nil {
+		t.Fatalf("read streamed location: %v", readErr)
 	}
 	if got.TruckID != want.TruckID || got.Latitude != want.Latitude {
 		t.Errorf("streamed location = %+v, want %+v", got, want)
 	}
-	if err := conn.Close(websocket.StatusNormalClosure, "test complete"); err != nil {
-		t.Fatalf("close location stream: %v", err)
+	if closeErr != nil {
+		t.Fatalf("close location stream: %v", closeErr)
 	}
 }
