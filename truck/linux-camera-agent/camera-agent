@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+
+set -u
+set -o pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -r /usr/local/lib/vehicle-agent/camera-agent-lib.sh ]]; then
+  source /usr/local/lib/vehicle-agent/camera-agent-lib.sh
+else
+  source "${script_dir}/camera-agent-lib.sh"
+fi
+
+retry_seconds="${CAMERA_RETRY_SECONDS:-5}"
+
+log() {
+  printf '%s camera-agent[%s]: %s\n' "$(date -Iseconds)" "${CAMERA_ID:-unknown}" "$*"
+}
+
+find_camera() {
+  if [[ -n "${CAMERA_DEVICE:-}" && -e "${CAMERA_DEVICE}" ]]; then
+    printf '%s\n' "${CAMERA_DEVICE}"
+    return 0
+  fi
+  # An explicitly configured input must never fall back to another camera.
+  if [[ -n "${CAMERA_DEVICE:-}" ]]; then
+    return 1
+  fi
+
+  local device
+  for device in /dev/v4l/by-id/* /dev/video*; do
+    [[ -e "${device}" ]] || continue
+    if v4l2-ctl -d "${device}" --all 2>/dev/null | grep -q 'Video Capture' &&
+      v4l2-ctl -d "${device}" --list-formats-ext 2>/dev/null |
+        grep -q "'${CAMERA_FOURCC:-UYVY}'"; then
+      printf '%s\n' "${device}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+media_server_reachable() {
+  local server host_port host port
+  server="${CAMERA_MEDIA_SERVER#rtsp://}"
+  server="${server%/}"
+  host_port="${server%%/*}"
+  host="${host_port%%:*}"
+  port="${host_port##*:}"
+  timeout 3 bash -c "true </dev/tcp/${host}/${port}" >/dev/null 2>&1
+}
+
+required=(
+  CAMERA_TRUCK_ID
+  CAMERA_ID
+  CAMERA_MEDIA_SERVER
+  CAMERA_PUBLISH_PASSWORD
+)
+
+for name in "${required[@]}"; do
+  value="${!name:-}"
+  if [[ -z "${value}" ]]; then
+    log "${name} is required"
+    exit 2
+  fi
+done
+
+if command -v iw >/dev/null 2>&1; then
+  iw dev wlan0 set power_save off >/dev/null 2>&1 || true
+fi
+
+publish_live() {
+  ffmpeg -hide_banner -loglevel warning -nostdin \
+    -f rawvideo \
+    -pixel_format "${pixel_format}" \
+    -video_size "${width}x${height}" \
+    -framerate "${fps}" \
+    -i pipe:0 \
+    -filter_complex \
+    "[0:v]split=2[main_input][sub_input];[main_input]fps=${CAMERA_MAIN_FPS:-8},scale=-2:${CAMERA_MAIN_HEIGHT:-480}[main];[sub_input]fps=${CAMERA_SUB_FPS:-4},scale=-2:${CAMERA_SUB_HEIGHT:-360}[sub]" \
+    -map '[main]' \
+    -an \
+    -c:v libx264 \
+    -preset "${CAMERA_X264_PRESET:-ultrafast}" \
+    -tune zerolatency \
+    -pix_fmt yuv420p \
+    -b:v "${CAMERA_MAIN_BITRATE:-600k}" \
+    -maxrate "${CAMERA_MAIN_BITRATE:-600k}" \
+    -bufsize "${CAMERA_MAIN_BUFFER:-1200k}" \
+    -g "${CAMERA_MAIN_GOP:-16}" \
+    -keyint_min "${CAMERA_MAIN_GOP:-16}" \
+    -sc_threshold 0 \
+    -f rtsp \
+    -rtsp_transport tcp \
+    "${base}/main" \
+    -map '[sub]' \
+    -an \
+    -c:v libx264 \
+    -preset "${CAMERA_X264_PRESET:-ultrafast}" \
+    -tune zerolatency \
+    -pix_fmt yuv420p \
+    -b:v "${CAMERA_SUB_BITRATE:-150k}" \
+    -maxrate "${CAMERA_SUB_BITRATE:-150k}" \
+    -bufsize "${CAMERA_SUB_BUFFER:-300k}" \
+    -g "${CAMERA_SUB_GOP:-8}" \
+    -keyint_min "${CAMERA_SUB_GOP:-8}" \
+    -sc_threshold 0 \
+    -f rtsp \
+    -rtsp_transport tcp \
+    "${base}/sub"
+}
+
+while true; do
+  if ! media_server_reachable; then
+    log "media server is unreachable; retrying in ${retry_seconds}s"
+    sleep "${retry_seconds}"
+    continue
+  fi
+
+  device="$(find_camera || true)"
+  if [[ -z "${device}" ]]; then
+    log "no compatible camera; retrying in ${retry_seconds}s"
+    sleep "${retry_seconds}"
+    continue
+  fi
+
+  server="${CAMERA_MEDIA_SERVER#rtsp://}"
+  server="${server%/}"
+  base="$(rtsp_base_url "${CAMERA_TRUCK_ID}" "${CAMERA_PUBLISH_PASSWORD}" "${server}" "${CAMERA_ID}")"
+  width="${CAMERA_WIDTH:-1920}"
+  height="${CAMERA_HEIGHT:-1080}"
+  fps="${CAMERA_FPS:-25}"
+  fourcc="${CAMERA_FOURCC:-UYVY}"
+  pixel_format="${CAMERA_PIXEL_FORMAT:-uyvy422}"
+
+  log "starting ${device}: ${width}x${height} ${fourcc} ${fps}fps"
+
+  if [[ "${CAMERA_ARCHIVE_ENABLED:-false}" == "true" &&
+        "${CAMERA_TRUCK_ID}" == "truck001" && "${CAMERA_ID}" == "cam01" ]]; then
+    archive_content_width="${CAMERA_ARCHIVE_CONTENT_WIDTH:-854}"
+    archive_width="${CAMERA_ARCHIVE_WIDTH:-864}"
+    archive_height="${CAMERA_ARCHIVE_HEIGHT:-480}"
+    archive_fps="${CAMERA_ARCHIVE_FPS:-8}"
+    archive_padding=$((archive_width - archive_content_width))
+    if ((archive_padding < 0 || archive_width % 16 != 0)); then
+      log "archive width must be 16-aligned and at least the content width"
+      exit 2
+    fi
+    archive_dir="$(mktemp -d /tmp/camera-agent-archive.XXXXXX)" || {
+      log "could not create archive pipe directory"
+      sleep "${retry_seconds}"
+      continue
+    }
+    live_fifo="${archive_dir}/live.raw"
+    archive_raw_fifo="${archive_dir}/archive.nv12"
+    archive_fifo="${archive_dir}/archive.ts"
+    if ! mkfifo -m 600 "${live_fifo}" "${archive_raw_fifo}" "${archive_fifo}"; then
+      log "could not create archive pipes"
+      rm -f -- "${live_fifo}" "${archive_raw_fifo}" "${archive_fifo}"
+      rmdir -- "${archive_dir}"
+      sleep "${retry_seconds}"
+      continue
+    fi
+    publish_live <"${live_fifo}" &
+    live_pid=$!
+    gst-launch-1.0 -q \
+      filesrc location="${archive_raw_fifo}" blocksize="$((archive_width * archive_height * 3 / 2))" ! \
+      rawvideoparse format=nv12 width="${archive_width}" height="${archive_height}" framerate="${archive_fps}/1" ! \
+      mpph265enc rc-mode=cbr bps="${CAMERA_ARCHIVE_BITRATE_BPS:-300000}" gop="${CAMERA_ARCHIVE_GOP:-24}" ! \
+      h265parse ! mpegtsmux ! fdsink fd=4 sync=false \
+      4>"${archive_fifo}" &
+    encoder_pid=$!
+    ffmpeg -hide_banner -loglevel warning -nostdin \
+      -f mpegts -i "${archive_fifo}" -an -c:v copy \
+      -f rtsp -rtsp_transport tcp "${base}/archive" &
+    archive_pid=$!
+
+    gst-launch-1.0 -q \
+      v4l2src device="${device}" io-mode=mmap ! \
+      video/x-raw,format="${fourcc}",width="${width}",height="${height}",framerate="${fps}/1" ! \
+      tee name=source_tee \
+      source_tee. ! queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! fdsink fd=3 sync=false \
+      source_tee. ! queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! \
+      videorate ! videoscale ! videoconvert ! \
+      video/x-raw,format=I420,width="${archive_content_width}",height="${archive_height}",framerate="${archive_fps}/1" ! \
+      videobox right="-${archive_padding}" fill=black ! \
+      video/x-raw,format=I420,width="${archive_width}",height="${archive_height}" ! \
+      videoconvert ! video/x-raw,format=NV12,width="${archive_width}",height="${archive_height}" ! \
+      fdsink fd=5 sync=false \
+      3>"${live_fifo}" 5>"${archive_raw_fifo}"
+    status=$?
+    wait "${live_pid}" || status=$?
+    wait "${encoder_pid}" || status=$?
+    wait "${archive_pid}" || status=$?
+    rm -f -- "${live_fifo}" "${archive_raw_fifo}" "${archive_fifo}"
+    rmdir -- "${archive_dir}"
+  else
+    gst-launch-1.0 -q \
+      v4l2src device="${device}" io-mode=mmap ! \
+      video/x-raw,format="${fourcc}",width="${width}",height="${height}",framerate="${fps}/1" ! \
+      queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! \
+      fdsink fd=1 sync=false | publish_live
+    status=$?
+  fi
+  log "stream stopped with status ${status}; retrying in ${retry_seconds}s"
+  sleep "${retry_seconds}"
+done
