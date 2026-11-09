@@ -168,7 +168,7 @@ func (s *StreamService) PublishCredentialsValid(user, password, truckID string) 
 
 func StreamPathParts(path string) (truckID, cameraID, quality string, ok bool) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 3 || (parts[2] != "main" && parts[2] != "sub") {
+	if len(parts) != 3 || (parts[2] != "main" && parts[2] != "sub" && parts[2] != "archive") {
 		return "", "", "", false
 	}
 	return parts[0], parts[1], parts[2], true

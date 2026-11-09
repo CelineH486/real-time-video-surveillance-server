@@ -243,12 +243,16 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                                       recording: _selectedRecording,
                                       loadUrl: _selectedRecording == null
                                           ? null
-                                          : () => widget.apiClient
+                                          : (start, durationSeconds) => widget
+                                                .apiClient
                                                 .createRecordingPlaySession(
                                                   truckId: widget.truckId,
                                                   cameraId: widget.cameraId,
                                                   recording:
                                                       _selectedRecording!,
+                                                  start: start,
+                                                  durationSeconds:
+                                                      durationSeconds,
                                                 ),
                                     )
                                   : WhepVideoPlayer(

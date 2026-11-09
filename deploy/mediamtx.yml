@@ -45,7 +45,14 @@ pathDefaults:
   recordDeleteAfter: 7d
 
 paths:
-  # Store only the high-quality stream. Sub-streams remain live-view only.
+  # Cam01 pilot: keep H.264 live, but record its separate H.265 archive path.
+  truck001/cam01/main:
+    record: false
+
+  truck001/cam01/archive:
+    record: true
+
+  # Other cameras continue recording H.264 main during the pilot.
   "~^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/main$":
     record: true
 

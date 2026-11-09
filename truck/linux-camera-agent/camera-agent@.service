@@ -1,0 +1,16 @@
+[Unit]
+Description=AHD camera %i stream publisher
+After=NetworkManager.service network-online.target
+Wants=NetworkManager.service network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/camera-agent.env
+EnvironmentFile=/etc/camera-agent/%i.env
+ExecStart=/usr/local/bin/camera-agent
+Restart=always
+RestartSec=5
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
