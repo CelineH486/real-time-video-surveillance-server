@@ -45,6 +45,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
   LatLng? _movementTarget;
   bool _mapReady = false;
   bool _loading = true;
+  bool _refreshingLocation = false;
   _LocationSocketStatus _socketStatus = _LocationSocketStatus.connecting;
   String? _error;
 
@@ -90,6 +91,23 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
       });
     } finally {
       if (mounted) _connectSocket();
+    }
+  }
+
+  Future<void> _refreshCurrentLocation() async {
+    if (_refreshingLocation) return;
+    _refreshingLocation = true;
+    try {
+      final location = await widget.apiClient
+          .getTruckLocation(widget.truckId)
+          .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (location != null) _applyLocation(location);
+    } catch (error) {
+      if (!mounted || _location != null) return;
+      setState(() => _error = '$error');
+    } finally {
+      _refreshingLocation = false;
     }
   }
 
@@ -142,6 +160,15 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
 
   void _applyLocation(TruckLocation location, {bool animate = true}) {
     if (!mounted) return;
+    final current = _location;
+    if (current != null) {
+      final comparison = location.recordedAt.compareTo(current.recordedAt);
+      if (comparison < 0 ||
+          (comparison == 0 &&
+              location.receivedAt.isBefore(current.receivedAt))) {
+        return;
+      }
+    }
     final target = LatLng(location.latitude, location.longitude);
     _error = null;
     _location = location;
@@ -220,7 +247,7 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
             ),
           ),
           IconButton(
-            onPressed: () => unawaited(_loadInitialLocation()),
+            onPressed: () => unawaited(_refreshCurrentLocation()),
             icon: const Icon(Icons.refresh),
             tooltip: '更新位置',
           ),
