@@ -98,7 +98,9 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
     if (_refreshingLocation) return;
     _refreshingLocation = true;
     try {
-      final location = await widget.apiClient.getTruckLocation(widget.truckId);
+      final location = await widget.apiClient
+          .getTruckLocation(widget.truckId)
+          .timeout(const Duration(seconds: 10));
       if (!mounted) return;
       if (location != null) _applyLocation(location);
     } catch (error) {
@@ -159,8 +161,13 @@ class _TruckLocationScreenState extends State<TruckLocationScreen>
   void _applyLocation(TruckLocation location, {bool animate = true}) {
     if (!mounted) return;
     final current = _location;
-    if (current != null && location.receivedAt.isBefore(current.receivedAt)) {
-      return;
+    if (current != null) {
+      final comparison = location.recordedAt.compareTo(current.recordedAt);
+      if (comparison < 0 ||
+          (comparison == 0 &&
+              location.receivedAt.isBefore(current.receivedAt))) {
+        return;
+      }
     }
     final target = LatLng(location.latitude, location.longitude);
     _error = null;
