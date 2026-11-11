@@ -8,6 +8,7 @@ import 'screens/camera_live_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/truck_select_screen.dart';
 import 'screens/truck_location_screen.dart';
+import 'screens/truck_location_history_screen.dart';
 import 'services/api_client.dart';
 import 'services/session_store.dart';
 
@@ -196,6 +197,13 @@ class _SurveillanceAppState extends State<SurveillanceApp> {
         apiClient: _apiClient,
         truckId: segments[1],
         onLogout: _logout,
+      );
+    } else if (segments.length == 3 &&
+        segments[0] == 'trucks' &&
+        segments[2] == 'location-history') {
+      page = TruckLocationHistoryScreen(
+        apiClient: _apiClient,
+        truckId: segments[1],
       );
     } else if (segments.length == 3 &&
         segments[0] == 'trucks' &&

@@ -5,6 +5,7 @@ import '../models/recording.dart';
 import '../models/stream_session.dart';
 import '../services/api_client.dart';
 import '../utils/taiwan_time.dart';
+import '../widgets/history_date_toolbar.dart';
 import '../widgets/recording_player.dart';
 import '../widgets/whep_video_player.dart';
 
@@ -33,6 +34,11 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   Recording? _selectedRecording;
   bool _showHistory = false;
   DateTime _historyDate = taiwanCalendarDate(DateTime.now());
+
+  List<DateTime> get _historyDates {
+    final today = taiwanCalendarDate(DateTime.now());
+    return List.generate(7, (index) => today.subtract(Duration(days: index)));
+  }
 
   @override
   void initState() {
@@ -75,7 +81,7 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
   void _loadHistory() {
     final nowUtc = DateTime.now().toUtc();
     final cutoffUtc = nowUtc.subtract(const Duration(days: 7));
-    final firstDate = taiwanCalendarDate(cutoffUtc);
+    final firstDate = _historyDates.last;
     final lastDate = taiwanCalendarDate(nowUtc);
     if (_historyDate.isBefore(firstDate) || _historyDate.isAfter(lastDate)) {
       _historyDate = lastDate;
@@ -94,30 +100,6 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
         end: nextDayUtc.isAfter(nowUtc) ? nowUtc : nextDayUtc,
       );
     });
-  }
-
-  Future<void> _selectHistoryDate() async {
-    final lastDate = taiwanCalendarDate(DateTime.now());
-    final firstDate = lastDate.subtract(const Duration(days: 7));
-    final initialDate = _historyDate.isBefore(firstDate)
-        ? firstDate
-        : _historyDate.isAfter(lastDate)
-        ? lastDate
-        : _historyDate;
-    final selected = await showDatePicker(
-      context: context,
-      locale: const Locale('zh', 'TW'),
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
-      initialEntryMode: DatePickerEntryMode.calendarOnly,
-      helpText: '選擇錄影日期',
-      cancelText: '取消',
-      confirmText: '確定',
-    );
-    if (selected == null || !mounted) return;
-    _historyDate = selected;
-    _loadHistory();
   }
 
   void _goBack() {
@@ -230,25 +212,15 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                       ),
                       const SizedBox(height: 16),
                       if (_showHistory) ...[
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _selectHistoryDate,
-                              icon: const Icon(Icons.calendar_month),
-                              label: Text(
-                                '${_historyDate.year}/${_historyDate.month.toString().padLeft(2, '0')}/${_historyDate.day.toString().padLeft(2, '0')}',
-                              ),
-                            ),
-                            const Text('僅可選擇最近 7 天'),
-                            TextButton.icon(
-                              onPressed: _loadHistory,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('重新整理'),
-                            ),
-                          ],
+                        HistoryDateToolbar(
+                          dates: _historyDates,
+                          selectedDate: _historyDate,
+                          summaryText: '選擇日期查看錄影',
+                          onChanged: (date) {
+                            _historyDate = date;
+                            _loadHistory();
+                          },
+                          onRefresh: _loadHistory,
                         ),
                         const SizedBox(height: 12),
                       ],
