@@ -62,6 +62,21 @@ func (c *LocationController) Stream(w http.ResponseWriter, r *http.Request) {
 	ctx := conn.CloseRead(context.Background())
 	updates, unsubscribe := c.subscribe(truckID)
 	defer unsubscribe()
+
+	location, found, err := db.CurrentTruckLocation(c.database, truckID, c.now())
+	if err != nil {
+		conn.Close(websocket.StatusInternalError, "location unavailable")
+		return
+	}
+	if found {
+		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := wsjson.Write(writeCtx, conn, location)
+		cancel()
+		if err != nil {
+			return
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
