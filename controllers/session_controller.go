@@ -67,10 +67,8 @@ func (c *SessionController) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rawToken := make([]byte, 32)
-	if _, err := rand.Read(rawToken); err != nil {
-		writeError(w, http.StatusServiceUnavailable, apiresponse.CodeAuthenticationUnavailable, apiresponse.MessageAuthenticationUnavailable)
-		return
-	}
+	// rand.Read fills the buffer completely and never returns an error.
+	rand.Read(rawToken)
 	token := base64.RawURLEncoding.EncodeToString(rawToken)
 	expiresAt := time.Now().Add(24 * time.Hour)
 	if err := db.CreateAPIToken(c.database, user.UserID, token, "Web login", expiresAt); err != nil {
