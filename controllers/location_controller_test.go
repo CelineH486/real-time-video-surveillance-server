@@ -427,6 +427,9 @@ func TestLocationControllerStreamSendsBroadcast(t *testing.T) {
 	// Arrange
 	database, mock := newLocationMock(t)
 	expectLocationAuthentication(mock, true)
+	// No initial location keeps this test focused on subsequent broadcasts.
+	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").
+		WillReturnError(sql.ErrNoRows)
 	controller := NewLocationController(database)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /trucks/{truckID}/stream", services.NewAuthService(database).Middleware(controller.Stream))
