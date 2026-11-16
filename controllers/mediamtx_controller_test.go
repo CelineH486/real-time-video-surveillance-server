@@ -66,6 +66,37 @@ func TestMediaMTXSeparatesLiveAndRecordingTokens_RecordingTokenPlaysRecording(t 
 	}
 }
 
+func TestMediaMTXSeparatesLiveAndRecordingTokens_RecordingTokenPlaysArchive(t *testing.T) {
+	streams := services.NewStreamService("http://localhost:8889", "test-signing-key", "publish-password")
+	controller := NewMediaMTXController(nil, streams)
+	now := time.Now()
+	token := streams.SignRecordingAccess("truck001", "cam01", now, 1800, now.Add(time.Hour))
+	body, err := json.Marshal(mediaMTXAuthRequest{Action: "playback", Path: "truck001/cam01/archive", Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	controller.Auth(response, httptest.NewRequest(http.MethodPost, "/internal/mediamtx/auth", bytes.NewReader(body)))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("got status %d, want %d: %s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+}
+
+func TestMediaMTXSeparatesLiveAndRecordingTokens_LiveTokenCannotPlayArchive(t *testing.T) {
+	streams := services.NewStreamService("http://localhost:8889", "test-signing-key", "publish-password")
+	controller := NewMediaMTXController(nil, streams)
+	token := streams.SignAccess("truck001", "cam01", "main", time.Now().Add(time.Hour))
+	body, err := json.Marshal(mediaMTXAuthRequest{Action: "playback", Path: "truck001/cam01/archive", Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	controller.Auth(response, httptest.NewRequest(http.MethodPost, "/internal/mediamtx/auth", bytes.NewReader(body)))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("got status %d, want %d: %s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+}
+
 func TestMediaMTXSeparatesLiveAndRecordingTokens_RecordingTokenCannotReadLiveStream(t *testing.T) {
 	// Arrange
 	streams := services.NewStreamService("http://localhost:8889", "test-signing-key", "publish-password")

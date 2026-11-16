@@ -278,15 +278,16 @@ func TestRecordingController_List_Validation_InvalidEnd(t *testing.T) {
 
 func TestRecordingController_List_Success(t *testing.T) {
 	// Arrange
-	var upstreamCalled bool
+	paths := make(map[string]bool)
 	// The local server verifies the exact request forwarded to MediaMTX.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalled = true
 		if r.URL.Path != "/list" || r.Method != http.MethodGet {
 			t.Errorf("MediaMTX request = %s %s, want GET /list", r.Method, r.URL.Path)
 		}
-		if got := r.URL.Query().Get("path"); got != "truck001/cam01/main" {
-			t.Errorf("MediaMTX path = %q, want %q", got, "truck001/cam01/main")
+		if got := r.URL.Query().Get("path"); got == "truck001/cam01/main" || got == "truck001/cam01/archive" {
+			paths[got] = true
+		} else {
+			t.Errorf("unexpected MediaMTX path = %q", got)
 		}
 		if got := r.URL.Query().Get("segments"); got != "true" {
 			t.Errorf("segments = %q, want %q", got, "true")
@@ -320,14 +321,14 @@ func TestRecordingController_List_Success(t *testing.T) {
 
 	// Assert
 	expectRecordingStatus(t, rec, http.StatusOK)
-	if !upstreamCalled {
-		t.Fatal("RecordingService did not call the MediaMTX test server")
+	if !paths["truck001/cam01/main"] || !paths["truck001/cam01/archive"] {
+		t.Fatalf("missing recording paths: %v", paths)
 	}
 	var spans []services.RecordingSpan
 	if err := json.Unmarshal(rec.Body.Bytes(), &spans); err != nil {
 		t.Fatalf("decode recording list response: %v", err)
 	}
-	if len(spans) != 1 || spans[0].Duration != 30.5 || spans[0].Start.Format(time.RFC3339) != recordingStart {
+	if len(spans) != 2 || spans[0].Duration != 30.5 || spans[0].Start.Format(time.RFC3339) != recordingStart || spans[0].Source != "main" || spans[1].Duration != 30.5 || spans[1].Start.Format(time.RFC3339) != recordingStart || spans[1].Source != "archive" {
 		t.Fatalf("unexpected recording spans: %+v", spans)
 	}
 }

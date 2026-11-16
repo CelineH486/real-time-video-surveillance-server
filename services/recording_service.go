@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 type RecordingSpan struct {
 	Start    time.Time `json:"start"`
 	Duration float64   `json:"durationSeconds"`
+	Source   string    `json:"source"`
 }
 
 type mediaMTXRecordingSpan struct {
@@ -63,8 +65,25 @@ func NewRecordingService(internalBaseURL, apiPublicBaseURL string, streams *Stre
 }
 
 func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, end string) ([]RecordingSpan, error) {
+	result, err := s.listSource(ctx, truckID, cameraID, "main", start, end)
+	if err != nil {
+		return nil, err
+	}
+	// Keep pre-pilot H.264 recordings visible while cam01 starts recording H.265.
+	if truckID == "truck001" && cameraID == "cam01" {
+		archive, err := s.listSource(ctx, truckID, cameraID, "archive", start, end)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, archive...)
+		sort.Slice(result, func(i, j int) bool { return result[i].Start.Before(result[j].Start) })
+	}
+	return result, nil
+}
+
+func (s *RecordingService) listSource(ctx context.Context, truckID, cameraID, recordingSource, start, end string) ([]RecordingSpan, error) {
 	token := s.streams.SignRecordingAccess(truckID, cameraID, time.Unix(0, 0), 0, time.Now().Add(5*time.Minute))
-	query := url.Values{"path": {strings.Join([]string{truckID, cameraID, "main"}, "/")}}
+	query := url.Values{"path": {strings.Join([]string{truckID, cameraID, recordingSource}, "/")}}
 	// Our pinned MediaMTX build exposes physical segments instead of merging
 	// adjacent files. Keep the recorder's true start time after every reconnect.
 	query.Set("segments", "true")
@@ -87,6 +106,9 @@ func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, e
 		return nil, err
 	}
 	defer response.Body.Close()
+	if recordingSource == "archive" && response.StatusCode == http.StatusNotFound {
+		return []RecordingSpan{}, nil
+	}
 	if response.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("recording service returned %d", response.StatusCode)
 	}
@@ -97,16 +119,21 @@ func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, e
 	result := make([]RecordingSpan, 0, len(source))
 	for _, span := range source {
 		result = append(result, RecordingSpan{
-			Start: span.Start, Duration: span.Duration,
+			Start: span.Start, Duration: span.Duration, Source: recordingSource,
 		})
 	}
 	return result, nil
 }
 
 func (s *RecordingService) PublicURL(truckID, cameraID string, start time.Time, duration float64, token string) string {
+	return s.PublicURLForSource(truckID, cameraID, "main", start, duration, token)
+}
+
+func (s *RecordingService) PublicURLForSource(truckID, cameraID, source string, start time.Time, duration float64, token string) string {
 	query := url.Values{}
 	query.Set("start", start.Format(time.RFC3339Nano))
 	query.Set("duration", strconv.FormatFloat(duration, 'f', -1, 64))
+	query.Set("source", source)
 	query.Set("token", token)
 	return s.apiPublicBaseURL + "/api/trucks/" + url.PathEscape(truckID) + "/cameras/" + url.PathEscape(cameraID) +
 		"/recordings/content?" + query.Encode()
@@ -117,8 +144,12 @@ func (s *RecordingService) PublicURL(truckID, cameraID string, start time.Time, 
 // Materializing the response allows http.ServeContent to provide the 206
 // responses required by Safari and avoids regenerating a clip for retries.
 func (s *RecordingService) Open(ctx context.Context, truckID, cameraID string, start time.Time, duration float64, token string) (*os.File, error) {
-	key := recordingCacheKey(truckID, cameraID, start, duration)
-	download := s.downloadFor(key, truckID, cameraID, start, duration, token)
+	return s.OpenSource(ctx, truckID, cameraID, "main", start, duration, token)
+}
+
+func (s *RecordingService) OpenSource(ctx context.Context, truckID, cameraID, source string, start time.Time, duration float64, token string) (*os.File, error) {
+	key := recordingCacheKey(truckID, cameraID, source, start, duration)
+	download := s.downloadFor(key, truckID, cameraID, source, start, duration, token)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -132,7 +163,11 @@ func (s *RecordingService) Open(ctx context.Context, truckID, cameraID string, s
 
 // Serve writes a materialized recording with standard HTTP range support.
 func (s *RecordingService) Serve(w http.ResponseWriter, r *http.Request, truckID, cameraID string, start time.Time, duration float64, token string) error {
-	file, err := s.Open(r.Context(), truckID, cameraID, start, duration, token)
+	return s.ServeSource(w, r, truckID, cameraID, "main", start, duration, token)
+}
+
+func (s *RecordingService) ServeSource(w http.ResponseWriter, r *http.Request, truckID, cameraID, source string, start time.Time, duration float64, token string) error {
+	file, err := s.OpenSource(r.Context(), truckID, cameraID, source, start, duration, token)
 	if err != nil {
 		return err
 	}
@@ -146,7 +181,7 @@ func (s *RecordingService) Serve(w http.ResponseWriter, r *http.Request, truckID
 	return nil
 }
 
-func (s *RecordingService) downloadFor(key, truckID, cameraID string, start time.Time, duration float64, token string) *recordingDownload {
+func (s *RecordingService) downloadFor(key, truckID, cameraID, source string, start time.Time, duration float64, token string) *recordingDownload {
 	now := time.Now()
 	s.cacheMu.Lock()
 	if cached, ok := s.cache[key]; ok {
@@ -166,7 +201,7 @@ func (s *RecordingService) downloadFor(key, truckID, cameraID string, start time
 	s.cacheMu.Unlock()
 
 	go func() {
-		download.path, download.err = s.downloadRecording(truckID, cameraID, start, duration, token)
+		download.path, download.err = s.downloadRecording(truckID, cameraID, source, start, duration, token)
 		s.cacheMu.Lock()
 		delete(s.inflight, key)
 		if download.err == nil {
@@ -186,13 +221,13 @@ func completedDownload(path string, err error) *recordingDownload {
 	return download
 }
 
-func (s *RecordingService) downloadRecording(truckID, cameraID string, start time.Time, duration float64, token string) (string, error) {
+func (s *RecordingService) downloadRecording(truckID, cameraID, source string, start time.Time, duration float64, token string) (string, error) {
 	if err := os.MkdirAll(s.cacheDirectory, 0o700); err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	query := mediaMTXRecordingQuery(truckID, cameraID, start, duration)
+	query := mediaMTXRecordingQuery(truckID, cameraID, source, start, duration)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.internalBaseURL+"/get?"+query.Encode(), nil)
 	if err != nil {
 		return "", err
@@ -233,19 +268,20 @@ func (s *RecordingService) expireCacheEntry(key, path string) {
 	s.cacheMu.Unlock()
 }
 
-func recordingCacheKey(truckID, cameraID string, start time.Time, duration float64) string {
+func recordingCacheKey(truckID, cameraID, source string, start time.Time, duration float64) string {
 	value := strings.Join([]string{
 		truckID,
 		cameraID,
+		source,
 		start.UTC().Format(time.RFC3339Nano),
 		strconv.FormatFloat(duration, 'f', -1, 64),
 	}, "|")
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
-func mediaMTXRecordingQuery(truckID, cameraID string, start time.Time, duration float64) url.Values {
+func mediaMTXRecordingQuery(truckID, cameraID, source string, start time.Time, duration float64) url.Values {
 	query := url.Values{}
-	query.Set("path", strings.Join([]string{truckID, cameraID, "main"}, "/"))
+	query.Set("path", strings.Join([]string{truckID, cameraID, source}, "/"))
 	query.Set("start", start.Format(time.RFC3339Nano))
 	query.Set("duration", strconv.FormatFloat(duration, 'f', -1, 64))
 	query.Set("format", "mp4")

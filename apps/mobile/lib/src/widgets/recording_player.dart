@@ -14,7 +14,8 @@ class RecordingPlayer extends StatefulWidget {
   });
 
   final Recording? recording;
-  final Future<String> Function()? loadUrl;
+  final Future<String> Function(DateTime start, double durationSeconds)?
+  loadUrl;
 
   @override
   State<RecordingPlayer> createState() => _RecordingPlayerState();
@@ -42,6 +43,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   void didUpdateWidget(RecordingPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.recording?.start != widget.recording?.start ||
+        oldWidget.recording?.source != widget.recording?.source ||
         oldWidget.recording?.durationSeconds !=
             widget.recording?.durationSeconds) {
       _select();
@@ -55,8 +57,12 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     _ready = null;
     if (previous != null) unawaited(previous.dispose());
     final loadUrl = widget.loadUrl;
-    if (widget.recording == null || loadUrl == null) return;
-    _ready = _loadAndInitialize(loadUrl, selectionId);
+    final recording = widget.recording;
+    if (recording == null || loadUrl == null) return;
+    _ready = _loadAndInitialize(
+      () => loadUrl(recording.start, recording.durationSeconds),
+      selectionId,
+    );
   }
 
   Future<void> _loadAndInitialize(
@@ -67,7 +73,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     if (!mounted || selectionId != _selectionId) return;
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
-    await _initialize(controller);
+    await _initialize(controller, selectionId);
   }
 
   Duration _clampPosition(Duration position) {
@@ -78,10 +84,17 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     return position > latest ? latest : position;
   }
 
-  Future<void> _initialize(VideoPlayerController controller) async {
-    await controller.initialize().timeout(const Duration(seconds: 30));
+  Future<void> _initialize(
+    VideoPlayerController controller,
+    int selectionId,
+  ) async {
+    await controller.initialize().timeout(const Duration(minutes: 6));
     // A previous selection may finish after the user changes clips or leaves.
-    if (!mounted || !identical(controller, _controller)) return;
+    if (!mounted ||
+        selectionId != _selectionId ||
+        !identical(controller, _controller)) {
+      return;
+    }
     // Mobile browsers can reject autoplay after asynchronous initialization.
     // Initialization still succeeded, so leave the player ready for a direct
     // tap on the play button instead of reporting a loading failure.
@@ -96,9 +109,6 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     final target = _clampPosition(position);
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    // Keep the original recording URL and controller. For an unbuffered
-    // position, video_player will issue a byte-range request against the same
-    // cached MP4 instead of creating a new playback session and MP4 clip.
     await controller.seekTo(target);
     if (!controller.value.isPlaying) await controller.play();
   }
@@ -108,7 +118,9 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     _selectionId++;
     final controller = _controller;
     _controller = null;
-    if (controller != null) unawaited(controller.dispose());
+    if (controller != null) {
+      unawaited(controller.dispose());
+    }
     super.dispose();
   }
 

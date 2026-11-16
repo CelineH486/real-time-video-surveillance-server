@@ -1,8 +1,13 @@
 class Recording {
-  const Recording({required this.start, required this.durationSeconds});
+  const Recording({
+    required this.start,
+    required this.durationSeconds,
+    this.source = 'main',
+  });
 
   final DateTime start;
   final double durationSeconds;
+  final String source;
 
   // UTC+8 is explicit: viewing from another timezone must not move midnight.
   DateTime get taiwanStart => start.toUtc().add(const Duration(hours: 8));
@@ -33,6 +38,7 @@ class Recording {
     return Recording(
       start: DateTime.parse(json['start'] as String),
       durationSeconds: (json['durationSeconds'] as num).toDouble(),
+      source: json['source'] as String? ?? 'main',
     );
   }
 }
