@@ -39,4 +39,3 @@ func TestRecordingDownloadReturnsCompleteSelectedSource(t *testing.T) {
 		})
 	}
 }
-
