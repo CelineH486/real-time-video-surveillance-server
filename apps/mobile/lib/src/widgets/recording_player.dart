@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -26,8 +25,6 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   VideoPlayerController? _controller;
   Future<void>? _ready;
   int _selectionId = 0;
-  Duration _chunkStart = Duration.zero;
-  bool _advancing = false;
 
   Duration get _totalDuration {
     final seconds = widget.recording?.durationSeconds ?? 0;
@@ -53,41 +50,30 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     }
   }
 
-  void _select([Duration position = Duration.zero]) {
+  void _select() {
     final selectionId = ++_selectionId;
     final previous = _controller;
-    previous?.removeListener(_onPlaybackChanged);
     _controller = null;
     _ready = null;
-    _advancing = false;
     if (previous != null) unawaited(previous.dispose());
     final loadUrl = widget.loadUrl;
     final recording = widget.recording;
     if (recording == null || loadUrl == null) return;
-    _chunkStart = Duration(seconds: (position.inSeconds ~/ 60) * 60);
-    final remainingSeconds =
-        (_totalDuration - _chunkStart).inMicroseconds /
-        Duration.microsecondsPerSecond;
-    final chunkSeconds = math.min(60.0, remainingSeconds);
-    if (chunkSeconds <= 0) return;
-    final start = recording.start.add(_chunkStart);
     _ready = _loadAndInitialize(
-      () => loadUrl(start, chunkSeconds),
+      () => loadUrl(recording.start, recording.durationSeconds),
       selectionId,
-      position - _chunkStart,
     );
   }
 
   Future<void> _loadAndInitialize(
     Future<String> Function() loadUrl,
     int selectionId,
-    Duration localPosition,
   ) async {
     final url = await loadUrl();
     if (!mounted || selectionId != _selectionId) return;
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
-    await _initialize(controller, selectionId, localPosition);
+    await _initialize(controller, selectionId);
   }
 
   Duration _clampPosition(Duration position) {
@@ -101,19 +87,14 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   Future<void> _initialize(
     VideoPlayerController controller,
     int selectionId,
-    Duration localPosition,
   ) async {
-    await controller.initialize().timeout(const Duration(seconds: 30));
+    await controller.initialize().timeout(const Duration(minutes: 6));
     // A previous selection may finish after the user changes clips or leaves.
     if (!mounted ||
         selectionId != _selectionId ||
         !identical(controller, _controller)) {
       return;
     }
-    if (localPosition > Duration.zero) {
-      await controller.seekTo(localPosition);
-    }
-    controller.addListener(_onPlaybackChanged);
     // Mobile browsers can reject autoplay after asynchronous initialization.
     // Initialization still succeeded, so leave the player ready for a direct
     // tap on the play button instead of reporting a loading failure.
@@ -127,26 +108,9 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   Future<void> _seek(Duration position) async {
     final target = _clampPosition(position);
     final controller = _controller;
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        target < _chunkStart ||
-        target >= _chunkStart + const Duration(seconds: 60)) {
-      setState(() => _select(target));
-      return;
-    }
-    await controller.seekTo(target - _chunkStart);
+    if (controller == null || !controller.value.isInitialized) return;
+    await controller.seekTo(target);
     if (!controller.value.isPlaying) await controller.play();
-  }
-
-  void _onPlaybackChanged() {
-    final controller = _controller;
-    if (controller == null || _advancing || !controller.value.isCompleted) {
-      return;
-    }
-    final next = _chunkStart + const Duration(seconds: 60);
-    if (next >= _totalDuration) return;
-    _advancing = true;
-    setState(() => _select(next));
   }
 
   @override
@@ -155,7 +119,6 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     final controller = _controller;
     _controller = null;
     if (controller != null) {
-      controller.removeListener(_onPlaybackChanged);
       unawaited(controller.dispose());
     }
     super.dispose();
@@ -207,13 +170,13 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
             valueListenable: controller,
             builder: (context, value, child) {
               final position = _clampTimelinePosition(
-                _chunkStart + value.position,
+                value.position,
               );
               final buffered = value.buffered
                   .map(
                     (range) => (
-                      start: _clampTimelinePosition(_chunkStart + range.start),
-                      end: _clampTimelinePosition(_chunkStart + range.end),
+                      start: _clampTimelinePosition(range.start),
+                      end: _clampTimelinePosition(range.end),
                     ),
                   )
                   .toList();
