@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/recording.dart';
 
@@ -24,6 +25,8 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   VideoPlayerController? _controller;
   Future<void>? _ready;
   int _selectionId = 0;
+  double _speed = 1;
+  bool _downloading = false;
 
   Duration get _totalDuration {
     final seconds = widget.recording?.durationSeconds ?? 0;
@@ -55,8 +58,9 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     _ready = null;
     if (previous != null) unawaited(previous.dispose());
     final loadUrl = widget.loadUrl;
-    if (widget.recording == null || loadUrl == null) return;
-    _ready = _loadAndInitialize(loadUrl, selectionId);
+    final recording = widget.recording;
+    if (recording == null || loadUrl == null) return;
+    _ready = _loadAndInitialize(() => loadUrl(), selectionId);
   }
 
   Future<void> _loadAndInitialize(
@@ -67,7 +71,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     if (!mounted || selectionId != _selectionId) return;
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     _controller = controller;
-    await _initialize(controller);
+    await _initialize(controller, selectionId);
   }
 
   Duration _clampPosition(Duration position) {
@@ -78,10 +82,18 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     return position > latest ? latest : position;
   }
 
-  Future<void> _initialize(VideoPlayerController controller) async {
-    await controller.initialize().timeout(const Duration(seconds: 30));
+  Future<void> _initialize(
+    VideoPlayerController controller,
+    int selectionId,
+  ) async {
+    await controller.initialize().timeout(const Duration(minutes: 6));
     // A previous selection may finish after the user changes clips or leaves.
-    if (!mounted || !identical(controller, _controller)) return;
+    if (!mounted ||
+        selectionId != _selectionId ||
+        !identical(controller, _controller)) {
+      return;
+    }
+    await controller.setPlaybackSpeed(_speed);
     // Mobile browsers can reject autoplay after asynchronous initialization.
     // Initialization still succeeded, so leave the player ready for a direct
     // tap on the play button instead of reporting a loading failure.
@@ -92,13 +104,34 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
     }
   }
 
+  Future<void> _download() async {
+    final recording = widget.recording;
+    final loadUrl = widget.loadUrl;
+    if (recording == null || loadUrl == null || _downloading) return;
+    setState(() => _downloading = true);
+    try {
+      final url = Uri.parse(await loadUrl());
+      final download = url.replace(
+        queryParameters: {...url.queryParameters, 'download': '1'},
+      );
+      if (!await launchUrl(download, webOnlyWindowName: '_self')) {
+        throw Exception('download failed');
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('下載失敗，請重試')));
+      }
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
   Future<void> _seek(Duration position) async {
     final target = _clampPosition(position);
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    // Keep the original recording URL and controller. For an unbuffered
-    // position, video_player will issue a byte-range request against the same
-    // cached MP4 instead of creating a new playback session and MP4 clip.
     await controller.seekTo(target);
     if (!controller.value.isPlaying) await controller.play();
   }
@@ -200,6 +233,46 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
                                   ),
                                 ),
                                 const Spacer(),
+                                DropdownButton<double>(
+                                  value: _speed,
+                                  dropdownColor: Colors.black87,
+                                  style: const TextStyle(color: Colors.white),
+                                  items: [0.25, 0.5, 1.0, 1.5, 2.0, 4.0, 8.0]
+                                      .map(
+                                        (speed) => DropdownMenuItem(
+                                          value: speed,
+                                          child: Text('$speed×'),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (speed) async {
+                                    if (speed == null) return;
+                                    try {
+                                      await controller.setPlaybackSpeed(speed);
+                                      if (mounted) {
+                                        setState(() => _speed = speed);
+                                      }
+                                    } catch (_) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('此裝置不支援該倍速'),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                ),
+                                IconButton(
+                                  onPressed: _downloading ? null : _download,
+                                  tooltip: '下載 MP4',
+                                  icon: const Icon(
+                                    Icons.download,
+                                    color: Colors.white,
+                                  ),
+                                ),
                                 const _ProgressLegend(
                                   color: Color(0xFF35E6A5),
                                   label: '已播放',
