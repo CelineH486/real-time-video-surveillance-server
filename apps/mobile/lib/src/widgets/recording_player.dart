@@ -169,9 +169,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
           return ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: controller,
             builder: (context, value, child) {
-              final position = _clampTimelinePosition(
-                value.position,
-              );
+              final position = _clampTimelinePosition(value.position);
               final buffered = value.buffered
                   .map(
                     (range) => (
