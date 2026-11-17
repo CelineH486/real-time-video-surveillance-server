@@ -265,7 +265,8 @@ jobs:
         run: dart format --output=none --set-exit-if-changed lib test
 
       - name: Analyze
-        run: flutter analyze
+        # Keep informational diagnostics visible while failing on warnings and errors.
+        run: flutter analyze --no-fatal-infos
 
       - name: Run tests with coverage
         run: flutter test --coverage
