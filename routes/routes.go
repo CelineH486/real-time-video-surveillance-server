@@ -44,6 +44,7 @@ func New(controllers Controllers, webContent fs.FS) *http.ServeMux {
 	mux.HandleFunc("GET /api/trucks", controllers.Auth.Middleware(controllers.Trucks.List))
 	mux.HandleFunc("GET /api/trucks/{truckID}/cameras", controllers.Auth.Middleware(controllers.Cameras.ListByTruck))
 	mux.HandleFunc("GET /api/trucks/{truckID}/location", controllers.Auth.Middleware(controllers.Locations.Current))
+	mux.HandleFunc("GET /api/trucks/{truckID}/locations/history", controllers.Auth.Middleware(controllers.Locations.History))
 	mux.HandleFunc("GET /api/trucks/{truckID}/locations/ws", controllers.Auth.Middleware(controllers.Locations.Stream))
 	mux.HandleFunc("POST /api/trucks/{truckID}/locations", controllers.Auth.Middleware(controllers.Locations.Create))
 	mux.HandleFunc("POST /api/trucks/{truckID}/cameras/{cameraID}/play", controllers.Auth.Middleware(controllers.Streams.Play))

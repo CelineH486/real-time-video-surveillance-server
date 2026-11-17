@@ -15,6 +15,32 @@ const (
 
 var ErrInvalidLocation = errors.New("invalid GPS location")
 
+var ErrInvalidLocationHistoryDate = errors.New("location history date must be within the last 7 Taiwan calendar days")
+
+const LocationHistoryRetentionDays = 7
+
+var taiwanLocation = time.FixedZone("Asia/Taipei", 8*60*60)
+
+func LocationHistoryDayRange(date string, now time.Time) (time.Time, time.Time, error) {
+	day, err := time.ParseInLocation("2006-01-02", date, taiwanLocation)
+	if err != nil {
+		return time.Time{}, time.Time{}, ErrInvalidLocationHistoryDate
+	}
+	today := now.In(taiwanLocation)
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, taiwanLocation)
+	oldest := todayStart.AddDate(0, 0, -(LocationHistoryRetentionDays - 1))
+	if day.Before(oldest) || day.After(todayStart) {
+		return time.Time{}, time.Time{}, ErrInvalidLocationHistoryDate
+	}
+	return day.UTC(), day.AddDate(0, 0, 1).UTC(), nil
+}
+
+func LocationHistoryCutoff(now time.Time) time.Time {
+	today := now.In(taiwanLocation)
+	todayStart := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, taiwanLocation)
+	return todayStart.AddDate(0, 0, -(LocationHistoryRetentionDays - 1)).UTC()
+}
+
 func ValidateLocation(location models.LocationInput, now time.Time) error {
 	if math.IsNaN(location.Latitude) || math.IsInf(location.Latitude, 0) || location.Latitude < -90 || location.Latitude > 90 ||
 		math.IsNaN(location.Longitude) || math.IsInf(location.Longitude, 0) || location.Longitude < -180 || location.Longitude > 180 ||

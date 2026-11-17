@@ -63,3 +63,76 @@ func TestStopStateClearsWhileMoving(t *testing.T) {
 		t.Fatal("expected moving vehicle to have no stop state")
 	}
 }
+
+func TestLocationHistoryDayRangeUsesTaiwanCalendarDays(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 14, 1, 0, 0, 0, time.UTC)
+	wantStart := time.Date(2026, 10, 13, 16, 0, 0, 0, time.UTC)
+
+	// Act
+	start, end, err := services.LocationHistoryDayRange("2026-10-14", now)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !start.Equal(wantStart) {
+		t.Fatalf("start = %s, want %s", start, wantStart)
+	}
+	if end.Sub(start) != 24*time.Hour {
+		t.Fatalf("range = %s, want 24h", end.Sub(start))
+	}
+}
+
+func TestLocationHistoryDayRangeRejectsExpiredDate(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 14, 1, 0, 0, 0, time.UTC)
+
+	// Act
+	_, _, err := services.LocationHistoryDayRange("2026-10-07", now)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected expired date to be rejected")
+	}
+}
+
+func TestLocationHistoryDayRangeRejectsFutureDate(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 14, 1, 0, 0, 0, time.UTC)
+
+	// Act
+	_, _, err := services.LocationHistoryDayRange("2026-10-15", now)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected future date to be rejected")
+	}
+}
+
+func TestLocationHistoryDayRangeRejectsMalformedDate(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 14, 1, 0, 0, 0, time.UTC)
+
+	// Act
+	_, _, err := services.LocationHistoryDayRange("not-a-date", now)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected malformed date to be rejected")
+	}
+}
+
+func TestLocationHistoryCutoffKeepsSevenTaiwanDates(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 14, 1, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 10, 7, 16, 0, 0, 0, time.UTC)
+
+	// Act
+	got := services.LocationHistoryCutoff(now)
+
+	// Assert
+	if !got.Equal(want) {
+		t.Fatalf("cutoff = %s, want %s", got, want)
+	}
+}
