@@ -48,21 +48,29 @@ class HistoryDateToolbar extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Icon(Icons.calendar_month, color: Color(0xFF35E6A5)),
-          DropdownButton<DateTime>(
-            value: selectedDate,
-            items: dates
-                .map(
-                  (date) => DropdownMenuItem(
-                    value: date,
-                    child: Text(formatHistoryDateLabel(date, today)),
-                  ),
-                )
-                .toList(growable: false),
-            onChanged: loading
-                ? null
-                : (date) {
-                    if (date != null) onChanged(date);
-                  },
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: DropdownButton<DateTime>(
+              isExpanded: true,
+              value: selectedDate,
+              items: dates
+                  .map(
+                    (date) => DropdownMenuItem(
+                      value: date,
+                      child: Text(
+                        formatHistoryDateLabel(date, today),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: loading
+                  ? null
+                  : (date) {
+                      if (date != null) onChanged(date);
+                    },
+            ),
           ),
           if (loading)
             const SizedBox(
