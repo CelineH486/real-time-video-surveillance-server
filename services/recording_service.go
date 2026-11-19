@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 type RecordingSpan struct {
 	Start    time.Time `json:"start"`
 	Duration float64   `json:"durationSeconds"`
+	Complete bool      `json:"complete"`
 }
 
 type mediaMTXRecordingSpan struct {
@@ -97,10 +99,51 @@ func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, e
 	result := make([]RecordingSpan, 0, len(source))
 	for _, span := range source {
 		result = append(result, RecordingSpan{
-			Start: span.Start, Duration: span.Duration,
+			Start: span.Start, Duration: span.Duration, Complete: s.segmentComplete(truckID, cameraID, span.Start),
 		})
 	}
 	return result, nil
+}
+
+// A marker is written only after the recorder closes a file and validation succeeds.
+func (s *RecordingService) segmentComplete(truckID, cameraID string, start time.Time) bool {
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(truckID) || !regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(cameraID) {
+		return false
+	}
+	root := os.Getenv("RECORDINGS_DIR")
+	if root == "" {
+		return false
+	}
+	t := start.UTC()
+	name := fmt.Sprintf("%s-%06d.mp4", t.Format("2006-01-02_15-04-05"), t.Nanosecond()/1000)
+	path := filepath.Join(root, truckID, cameraID, "main", name)
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return false
+	}
+	statusRoot := os.Getenv("RECORDING_STATUS_DIR")
+	if statusRoot == "" {
+		return false
+	}
+	marker, err := os.ReadFile(filepath.Join(statusRoot, truckID, cameraID, "main", name+".complete"))
+	if err != nil {
+		return false
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(string(marker)), 10, 64)
+	return err == nil && size == info.Size()
+}
+
+func (s *RecordingService) DownloadReady(ctx context.Context, truckID, cameraID string, start time.Time, duration float64) (bool, error) {
+	rows, err := s.List(ctx, truckID, cameraID, "", "")
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row.Start.Equal(start) && row.Complete && duration <= row.Duration {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *RecordingService) PublicURL(truckID, cameraID string, start time.Time, duration float64, token string) string {

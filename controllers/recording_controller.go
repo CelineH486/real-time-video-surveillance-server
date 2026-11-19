@@ -103,6 +103,17 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
+	if r.URL.Query().Get("download") == "1" {
+		ready, err := c.recordings.DownloadReady(r.Context(), truckID, cameraID, start, duration)
+		if err != nil {
+			http.Error(w, "recording status unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !ready {
+			http.Error(w, "recording is not ready for download", http.StatusConflict)
+			return
+		}
+	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	if r.URL.Query().Get("download") == "1" {
 		filename := fmt.Sprintf("recording-%s-%s-%s.mp4", truckID, cameraID, start.UTC().Format("20060102T150405Z"))

@@ -45,6 +45,7 @@ const (
 	CodeInvalidLocation             = "invalid_location"
 	CodeLocationUnavailable         = "location_unavailable"
 	CodeLocationNotFound            = "location_not_found"
+	CodeInvalidLocationHistoryDate  = "invalid_location_history_date"
 )
 
 const (
@@ -81,6 +82,7 @@ const (
 	MessageInvalidLocation             = "Location must contain a valid GPS fix, coordinates, speed, and optional GPS metadata"
 	MessageLocationUnavailable         = "Unable to store or load truck location"
 	MessageLocationNotFound            = "No GPS location has been received for this truck"
+	MessageInvalidLocationHistoryDate  = "Query parameter date must be YYYY-MM-DD within the last 7 Taiwan calendar days"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, value any) {

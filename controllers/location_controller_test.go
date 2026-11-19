@@ -343,6 +343,9 @@ func TestLocationControllerCreateSavesAndBroadcastsLocation(t *testing.T) {
 		"truck-1", saved.Latitude, saved.Longitude, nil, float64(0), nil, nil, nil, 1,
 		recordedAt, fixedLocationTime, anchorLat, anchorLon, stoppedSince,
 	).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`DELETE FROM truck_locations WHERE recorded_at < \$1`).
+		WithArgs(time.Date(2026, time.October, 19, 16, 0, 0, 0, time.UTC)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 	mock.ExpectQuery(`FROM truck_location_state`).WithArgs("truck-1").WillReturnRows(locationRows(saved))
 
@@ -399,6 +402,52 @@ func TestLocationBroadcastKeepsNewestUpdate(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for location update")
+	}
+}
+
+func TestLocationHistoryCleanupSchedulesInitialCleanup(t *testing.T) {
+	// Arrange
+	controller := &LocationController{}
+	now := time.Date(2026, 10, 14, 1, 0, 0, 0, time.UTC)
+
+	// Act
+	cutoff := controller.locationHistoryCleanupCutoff(now)
+
+	// Assert
+	if cutoff.IsZero() {
+		t.Fatal("expected first location update to schedule cleanup")
+	}
+}
+
+func TestLocationHistoryCleanupSkipsSecondCleanupOnSameTaiwanDay(t *testing.T) {
+	// Arrange
+	controller := &LocationController{
+		lastCleanup: time.Date(2026, 10, 7, 16, 0, 0, 0, time.UTC),
+	}
+	now := time.Date(2026, 10, 14, 2, 0, 0, 0, time.UTC)
+
+	// Act
+	cutoff := controller.locationHistoryCleanupCutoff(now)
+
+	// Assert
+	if !cutoff.IsZero() {
+		t.Fatal("expected same-day cleanup to be skipped")
+	}
+}
+
+func TestLocationHistoryCleanupSchedulesCleanupOnNextTaiwanDay(t *testing.T) {
+	// Arrange
+	controller := &LocationController{
+		lastCleanup: time.Date(2026, 10, 7, 16, 0, 0, 0, time.UTC),
+	}
+	now := time.Date(2026, 10, 15, 1, 0, 0, 0, time.UTC)
+
+	// Act
+	cutoff := controller.locationHistoryCleanupCutoff(now)
+
+	// Assert
+	if cutoff.IsZero() {
+		t.Fatal("expected next-day location update to schedule cleanup")
 	}
 }
 

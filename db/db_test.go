@@ -409,7 +409,7 @@ func TestSaveTruckLocation_HistoryInsertErrorRollsBack(t *testing.T) {
 	databaseMock.ExpectRollback()
 
 	// Act
-	_, saveError := SaveTruckLocation(databaseConnection, "truck001", locationInput, recordedAt, recordedAt, nil, nil, nil)
+	_, saveError := SaveTruckLocation(databaseConnection, "truck001", locationInput, recordedAt, recordedAt, time.Time{}, nil, nil, nil)
 
 	// Assert
 	if !errors.Is(saveError, expectedDatabaseError) {
@@ -433,7 +433,7 @@ func TestSaveTruckLocation_StateInsertErrorRollsBack(t *testing.T) {
 	databaseMock.ExpectRollback()
 
 	// Act
-	_, saveError := SaveTruckLocation(databaseConnection, "truck001", locationInput, recordedAt, recordedAt, nil, nil, nil)
+	_, saveError := SaveTruckLocation(databaseConnection, "truck001", locationInput, recordedAt, recordedAt, time.Time{}, nil, nil, nil)
 
 	// Assert
 	if !errors.Is(saveError, expectedDatabaseError) {
@@ -457,7 +457,7 @@ func TestSaveTruckLocation_CommitError(t *testing.T) {
 	databaseMock.ExpectCommit().WillReturnError(expectedDatabaseError)
 
 	// Act
-	_, saveError := SaveTruckLocation(databaseConnection, "truck001", locationInput, recordedAt, recordedAt, nil, nil, nil)
+	_, saveError := SaveTruckLocation(databaseConnection, "truck001", locationInput, recordedAt, recordedAt, time.Time{}, nil, nil, nil)
 
 	// Assert
 	if !errors.Is(saveError, expectedDatabaseError) {

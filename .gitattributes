@@ -1,0 +1,2 @@
+deploy/mediamtx/*.sh text eol=lf
+deploy/mediamtx/*.patch text eol=lf

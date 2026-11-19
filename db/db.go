@@ -233,7 +233,37 @@ func CurrentTruckLocation(dbConn *sql.DB, truckID string, now time.Time) (models
 	return location, true, nil
 }
 
-func SaveTruckLocation(dbConn *sql.DB, truckID string, input models.LocationInput, recordedAt time.Time, receivedAt time.Time, anchorLat, anchorLon *float64, stoppedSince *time.Time) (models.TruckLocation, error) {
+func TruckLocationHistory(dbConn *sql.DB, truckID string, start, end time.Time) ([]models.TruckLocation, error) {
+	rows, err := dbConn.Query(`
+		SELECT truck_id, latitude, longitude, altitude_m, speed_kmh,
+		       heading_degrees, accuracy_m, satellites, fix_quality,
+		       recorded_at, received_at
+		FROM truck_locations
+		WHERE truck_id = $1 AND recorded_at >= $2 AND recorded_at < $3
+		ORDER BY recorded_at ASC, location_id ASC
+	`, truckID, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	locations := make([]models.TruckLocation, 0)
+	for rows.Next() {
+		var location models.TruckLocation
+		if err := rows.Scan(
+			&location.TruckID, &location.Latitude, &location.Longitude,
+			&location.AltitudeM, &location.SpeedKmh, &location.HeadingDegrees,
+			&location.AccuracyM, &location.Satellites, &location.FixQuality,
+			&location.RecordedAt, &location.ReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		locations = append(locations, location)
+	}
+	return locations, rows.Err()
+}
+
+func SaveTruckLocation(dbConn *sql.DB, truckID string, input models.LocationInput, recordedAt time.Time, receivedAt time.Time, retentionCutoff time.Time, anchorLat, anchorLon *float64, stoppedSince *time.Time) (models.TruckLocation, error) {
 	tx, err := dbConn.Begin()
 	if err != nil {
 		return models.TruckLocation{}, err
@@ -273,6 +303,11 @@ func SaveTruckLocation(dbConn *sql.DB, truckID string, input models.LocationInpu
 		recordedAt, receivedAt, anchorLat, anchorLon, stoppedSince)
 	if err != nil {
 		return models.TruckLocation{}, err
+	}
+	if !retentionCutoff.IsZero() {
+		if _, err = tx.Exec(`DELETE FROM truck_locations WHERE recorded_at < $1`, retentionCutoff); err != nil {
+			return models.TruckLocation{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return models.TruckLocation{}, err

@@ -38,6 +38,11 @@ services:
       STREAM_SIGNING_KEY: ${STREAM_SIGNING_KEY:?STREAM_SIGNING_KEY must be set}
       STREAM_PUBLISH_PASSWORD: ${STREAM_PUBLISH_PASSWORD:?STREAM_PUBLISH_PASSWORD must be set}
       CAMERA_OFFLINE_TIMEOUT: ${CAMERA_OFFLINE_TIMEOUT:-15s}
+      RECORDINGS_DIR: /recordings
+      RECORDING_STATUS_DIR: /recording-status
+    volumes:
+      - ./recordings:/recordings:ro
+      - recording-status:/recording-status:ro
 
   mediamtx:
     build: ./deploy/mediamtx
@@ -46,11 +51,14 @@ services:
     environment:
       MTX_AUTHHTTPADDRESS: http://api:8080/internal/mediamtx/auth
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS:-}
+      TZ: UTC
     depends_on:
       - api
     volumes:
       - ./deploy/mediamtx.yml:/mediamtx.yml:ro
       - ./recordings:/recordings
+      - recording-status:/recording-status
 
 volumes:
   postgres-data:
+  recording-status:

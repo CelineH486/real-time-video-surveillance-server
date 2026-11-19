@@ -40,6 +40,8 @@ pathDefaults:
   recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
   recordFormat: fmp4
   recordSegmentDuration: 30m
+  runOnRecordSegmentCreate: sh -c 'rm -f "/recording-status/${MTX_SEGMENT_PATH#/recordings/}.complete"'
+  runOnRecordSegmentComplete: /segment-status.sh "$MTX_SEGMENT_PATH"
   # The pinned build also rotates at Taiwan midnight, on the next keyframe.
   # Half-hour deadlines start at stream start and reset at midnight.
   recordDeleteAfter: 7d
