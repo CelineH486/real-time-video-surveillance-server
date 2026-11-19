@@ -239,7 +239,7 @@ class _RecordingDayTimelineState extends State<RecordingDayTimeline> {
               const SizedBox(width: 8),
               DropdownButton<double>(
                 value: widget.speed,
-                items: [0.25, 0.5, 1.0, 1.5, 2.0, 4.0]
+                items: [0.25, 0.5, 1.0, 1.5, 2.0, 4.0, 8.0]
                     .map(
                       (speed) => DropdownMenuItem(
                         value: speed,

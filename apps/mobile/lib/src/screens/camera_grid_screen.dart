@@ -48,7 +48,9 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
       final cameras = await widget.apiClient.getCameras(widget.truckId);
       if (!mounted) return;
       setState(() {
-        _cameras = cameras;
+        _cameras = cameras
+            .where((camera) => camera.cameraId != 'cam09')
+            .toList();
         _loadError = null;
       });
     } catch (error) {
@@ -121,31 +123,38 @@ class _CameraGridScreenState extends State<CameraGridScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1000
+        final columns = constraints.maxWidth >= 2200
+            ? 4
+            : constraints.maxWidth >= 1000
             ? 3
             : constraints.maxWidth >= 620
             ? 2
             : 1;
-        return GridView.builder(
-          padding: EdgeInsets.all(constraints.maxWidth >= 620 ? 20 : 12),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            childAspectRatio: 16 / 11.8,
-          ),
-          itemCount: cameras.length,
-          itemBuilder: (context, index) {
-            final camera = cameras[index];
-            return _CameraTile(
-              key: ValueKey(camera.cameraId),
-              camera: camera,
-              onAuthenticationExpired: () => unawaited(_reload()),
-              onTap: () => Navigator.of(context).pushNamed(
-                '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 2400),
+            child: GridView.builder(
+              padding: EdgeInsets.all(constraints.maxWidth >= 620 ? 20 : 12),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 16 / 11.8,
               ),
-            );
-          },
+              itemCount: cameras.length,
+              itemBuilder: (context, index) {
+                final camera = cameras[index];
+                return _CameraTile(
+                  key: ValueKey(camera.cameraId),
+                  camera: camera,
+                  onAuthenticationExpired: () => unawaited(_reload()),
+                  onTap: () => Navigator.of(context).pushNamed(
+                    '/trucks/${widget.truckId}/cameras/${camera.cameraId}',
+                  ),
+                );
+              },
+            ),
+          ),
         );
       },
     );

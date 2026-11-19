@@ -18,14 +18,14 @@ main.go       dependency wiring and server startup only
 
 ## Streaming layout
 
-Each truck publishes a main and sub stream for each of its nine cameras:
+Each truck publishes a main and sub stream for each of its eight cameras:
 
 ```text
 truck001/cam01/main  high-quality single-camera view
 truck001/cam01/sub   low-bandwidth overview view
 ```
 
-The truck publishes RTSP. MediaMTX exposes WebRTC/WHEP to the shared Flutter application. The responsive overview requests nine `sub` streams; opening one camera requests its `main` stream.
+The truck publishes RTSP. MediaMTX exposes WebRTC/WHEP to the shared Flutter application. The responsive overview requests eight `sub` streams; opening one camera requests its `main` stream.
 
 ## Configuration
 
@@ -107,7 +107,7 @@ To start PostgreSQL, the Go API, and MediaMTX together:
 docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 ```
 
-Open the responsive Flutter dashboard at `http://localhost:8080/web/`. It shows nine low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer. The Docker build compiles `apps/mobile` for Web and embeds the generated assets in the Go server.
+Open the responsive Flutter dashboard at `http://localhost:8080/web/`. It shows eight low-bandwidth sub-streams, switches to the high-quality main stream when a camera is opened, and provides historical recordings in the same viewer. The Docker build compiles `apps/mobile` for Web and embeds the generated assets in the Go server.
 
 For Flutter development without rebuilding the Go image:
 
@@ -120,7 +120,7 @@ The Web and mobile targets share the same Dart screens, API client, session
 storage, and WHEP player. There is no separate handwritten JavaScript
 dashboard to maintain.
 
-The development database is seeded with `truck001`, `cam01` through `cam09`, and a development viewer token. These values are for local testing only.
+The development database is seeded with `truck001`, `cam01` through `cam08`, and a development viewer token. These values are for local testing only.
 
 Open RTSP `8554/tcp`, WebRTC signaling `8889/tcp`, and WebRTC ICE `8189/tcp+udp` on the server firewall. For access across the internet, set MediaMTX `webrtcAdditionalHosts` to the server's public IP or DNS name.
 
@@ -128,9 +128,9 @@ MediaMTX calls `POST /internal/mediamtx/auth` for every publish, live-read, and 
 
 Live API responses contain a WHEP URL ending in `/whep` and a separate `accessToken`. The Web client must pass that token to `MediaMTXWebRTCReader`; it must not append it to the iframe or URL query string.
 
-## Start nine truck streams
+## Start eight truck streams
 
-On the truck computer, copy `truck/streams.example.json` to the ignored file `truck/streams.json`, fill in the nine camera RTSP URLs and server address, then run:
+On the truck computer, copy `truck/streams.example.json` to the ignored file `truck/streams.json`, fill in the eight camera RTSP URLs and server address, then run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File truck/start-streams.ps1
@@ -146,14 +146,14 @@ video keyframe, so file boundaries can differ by a few seconds.
 
 ## End-to-end video test
 
-Place local test files `cam1.mp4` through `cam9.mp4` in the ignored directory `testdata/videos/`. The test script publishes them as nine main/sub camera pairs:
+Place local test files `cam1.mp4` through `cam8.mp4` in the ignored directory `testdata/videos/`. The test script publishes them as eight main/sub camera pairs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/e2e-video-test.ps1 `
   -LoopCount 20
 ```
 
-`-VideoDirectory` remains available when you want to test a different set of `cam1.mp4` through `cam9.mp4` files.
+`-VideoDirectory` remains available when you want to test a different set of `cam1.mp4` through `cam8.mp4` files.
 
 During publishing, `GET /api/trucks/truck001/cameras` reports all cameras as `online`. They become `offline` after the configured timeout when the publishers stop. Completed main streams are available through the recordings API.
 

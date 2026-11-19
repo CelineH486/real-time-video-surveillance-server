@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"strconv"
 	"time"
@@ -102,7 +103,22 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
+	if r.URL.Query().Get("download") == "1" {
+		ready, err := c.recordings.DownloadReady(r.Context(), truckID, cameraID, start, duration)
+		if err != nil {
+			http.Error(w, "recording status unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !ready {
+			http.Error(w, "recording is not ready for download", http.StatusConflict)
+			return
+		}
+	}
 	w.Header().Set("Cache-Control", "private, no-store")
+	if r.URL.Query().Get("download") == "1" {
+		filename := fmt.Sprintf("recording-%s-%s-%s.mp4", truckID, cameraID, start.UTC().Format("20060102T150405Z"))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	}
 	if err := c.recordings.Serve(w, r, truckID, cameraID, start, duration, token); err != nil {
 		writeError(w, http.StatusBadGateway, apiresponse.CodeRecordingServiceUnavailable, apiresponse.MessageRecordingOpenUnavailable)
 	}

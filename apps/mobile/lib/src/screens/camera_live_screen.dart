@@ -259,6 +259,21 @@ class _CameraLiveScreenState extends State<CameraLiveScreen> {
                               key: ObjectKey(_recordings),
                               date: _historyDate,
                               recordings: history.data ?? const [],
+                              refreshRecordings: () =>
+                                  widget.apiClient.getRecordings(
+                                    truckId: widget.truckId,
+                                    cameraId: widget.cameraId,
+                                    start: taiwanDayStartUtc(
+                                      _historyDate,
+                                    ).subtract(const Duration(days: 1)),
+                                    end: taiwanDayStartUtc(
+                                      DateTime(
+                                        _historyDate.year,
+                                        _historyDate.month,
+                                        _historyDate.day + 1,
+                                      ),
+                                    ),
+                                  ),
                               loadUrl: (recording) =>
                                   widget.apiClient.createRecordingPlaySession(
                                     truckId: widget.truckId,

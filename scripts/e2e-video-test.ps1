@@ -43,7 +43,7 @@ function Start-Publisher {
     return [pscustomobject]@{ CameraId = $CameraId; Quality = $Quality; Process = $process }
 }
 
-for ($cameraNumber = 1; $cameraNumber -le 9; $cameraNumber++) {
+for ($cameraNumber = 1; $cameraNumber -le 8; $cameraNumber++) {
     $cameraId = "cam{0:D2}" -f $cameraNumber
     $videoPath = Join-Path $VideoDirectory "cam$cameraNumber.mp4"
     if (-not (Test-Path -LiteralPath $videoPath)) {
@@ -55,7 +55,7 @@ for ($cameraNumber = 1; $cameraNumber -le 9; $cameraNumber++) {
     $processes += Start-Publisher -CameraId $cameraId -VideoPath $videoPath -TargetUrl "$target/sub" -Quality "sub"
 }
 
-Write-Output "Started 9 main streams and 9 sub streams"
+Write-Output "Started 8 main streams and 8 sub streams"
 $failed = @()
 foreach ($item in $processes) {
     $errorOutput = $item.Process.StandardError.ReadToEnd()
