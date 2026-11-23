@@ -160,15 +160,9 @@ void main() {
     await tester.tapAt(Offset(track.left + track.width / 3, track.center.dy));
     expect(selected, start.add(const Duration(hours: 8)));
     final node = tester.getSemantics(find.bySemanticsLabel('錄影時間軸'));
-    node.owner!.performAction(
-      node.id,
-      SemanticsAction.increase,
-    );
+    node.owner!.performAction(node.id, SemanticsAction.increase);
     expect(selected, start.add(const Duration(hours: 6, minutes: 30)));
-    node.owner!.performAction(
-      node.id,
-      SemanticsAction.decrease,
-    );
+    node.owner!.performAction(node.id, SemanticsAction.decrease);
     expect(selected, start.add(const Duration(hours: 5, minutes: 30)));
     semantics.dispose();
   });
