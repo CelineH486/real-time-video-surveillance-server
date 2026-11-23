@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:surveillance_app/src/models/recording.dart';
@@ -130,5 +132,44 @@ void main() {
     );
     expect(find.text('選擇錄影時間'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('timeline preserves pointer position and semantic adjustments', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    DateTime? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RecordingDayTimeline(
+            date: day,
+            recordings: rows,
+            position: first.start,
+            playing: false,
+            loading: false,
+            onSeek: (value) => selected = value,
+            onToggle: () {},
+          ),
+        ),
+      ),
+    );
+    final track = tester.getRect(
+      find.byKey(const ValueKey('recording-day-track')),
+    );
+    await tester.tapAt(Offset(track.left + track.width / 3, track.center.dy));
+    expect(selected, start.add(const Duration(hours: 8)));
+    final node = tester.getSemantics(find.bySemanticsLabel('錄影時間軸'));
+    node.owner!.performAction(
+      node.id,
+      SemanticsAction.increase,
+    );
+    expect(selected, start.add(const Duration(hours: 6, minutes: 30)));
+    node.owner!.performAction(
+      node.id,
+      SemanticsAction.decrease,
+    );
+    expect(selected, start.add(const Duration(hours: 5, minutes: 30)));
+    semantics.dispose();
   });
 }

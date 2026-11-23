@@ -74,6 +74,12 @@ class _RecordingDayTimelineState extends State<RecordingDayTimeline> {
     _precisionAnchor = null;
   });
 
+  void _adjustAccessibleTime(int minutes) {
+    final current = widget.position ?? _dayStart;
+    final elapsed = current.difference(_dayStart).inMilliseconds;
+    widget.onSeek(_timeAt(elapsed + minutes * 60 * 1000));
+  }
+
   String _label(DateTime time) {
     final t = time.toUtc().add(taiwanUtcOffset);
     String two(int n) => n.toString().padLeft(2, '0');
@@ -172,56 +178,69 @@ class _RecordingDayTimelineState extends State<RecordingDayTimeline> {
           LayoutBuilder(
             builder: (context, constraints) => MouseRegion(
               cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (d) => widget.onSeek(
-                  _at(d.localPosition.dx, constraints.maxWidth),
-                ),
-                onHorizontalDragStart: (d) => setState(
-                  () =>
-                      _preview = _at(d.localPosition.dx, constraints.maxWidth),
-                ),
-                onHorizontalDragUpdate: (d) => setState(
-                  () =>
-                      _preview = _at(d.localPosition.dx, constraints.maxWidth),
-                ),
-                onHorizontalDragEnd: (_) {
-                  _finishDrag();
-                },
-                onHorizontalDragCancel: _cancelDrag,
-                onLongPressStart: (details) => setState(() {
-                  _precisionAnchor = _at(
-                    details.localPosition.dx,
-                    constraints.maxWidth,
-                  );
-                  _preview = _precisionAnchor;
-                }),
-                onLongPressMoveUpdate: (details) {
-                  final anchor = _precisionAnchor;
-                  if (anchor == null) return;
-                  final lensWidth = constraints.maxWidth.clamp(
-                    1.0,
-                    _lensMaxWidth,
-                  );
-                  setState(
-                    () => _preview = _timeAt(
-                      anchor.difference(_dayStart).inMilliseconds +
-                          details.offsetFromOrigin.dx /
-                              lensWidth *
-                              _lensSeconds *
-                              1000,
+              child: Semantics(
+                label: '錄影時間軸',
+                value: shown == null ? '尚未選擇時間' : _label(shown),
+                increasedValue: '向後 30 分鐘',
+                decreasedValue: '向前 30 分鐘',
+                onIncrease: () => _adjustAccessibleTime(30),
+                onDecrease: () => _adjustAccessibleTime(-30),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  excludeFromSemantics: true,
+                  onTapUp: (d) => widget.onSeek(
+                    _at(d.localPosition.dx, constraints.maxWidth),
+                  ),
+                  onHorizontalDragStart: (d) => setState(
+                    () => _preview = _at(
+                      d.localPosition.dx,
+                      constraints.maxWidth,
                     ),
-                  );
-                },
-                onLongPressEnd: (_) => _finishDrag(),
-                child: CustomPaint(
-                  key: const ValueKey('recording-day-track'),
-                  size: Size(constraints.maxWidth, 100),
-                  painter: _DayPainter(
-                    _dayStart,
-                    86400,
-                    widget.recordings,
-                    shown,
+                  ),
+                  onHorizontalDragUpdate: (d) => setState(
+                    () => _preview = _at(
+                      d.localPosition.dx,
+                      constraints.maxWidth,
+                    ),
+                  ),
+                  onHorizontalDragEnd: (_) {
+                    _finishDrag();
+                  },
+                  onHorizontalDragCancel: _cancelDrag,
+                  onLongPressStart: (details) => setState(() {
+                    _precisionAnchor = _at(
+                      details.localPosition.dx,
+                      constraints.maxWidth,
+                    );
+                    _preview = _precisionAnchor;
+                  }),
+                  onLongPressMoveUpdate: (details) {
+                    final anchor = _precisionAnchor;
+                    if (anchor == null) return;
+                    final lensWidth = constraints.maxWidth.clamp(
+                      1.0,
+                      _lensMaxWidth,
+                    );
+                    setState(
+                      () => _preview = _timeAt(
+                        anchor.difference(_dayStart).inMilliseconds +
+                            details.offsetFromOrigin.dx /
+                                lensWidth *
+                                _lensSeconds *
+                                1000,
+                      ),
+                    );
+                  },
+                  onLongPressEnd: (_) => _finishDrag(),
+                  child: CustomPaint(
+                    key: const ValueKey('recording-day-track'),
+                    size: Size(constraints.maxWidth, 100),
+                    painter: _DayPainter(
+                      _dayStart,
+                      86400,
+                      widget.recordings,
+                      shown,
+                    ),
                   ),
                 ),
               ),
