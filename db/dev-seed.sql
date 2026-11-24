@@ -8,7 +8,7 @@ SELECT
     'truck001',
     'Camera ' || camera_number,
     'offline'
-FROM generate_series(1, 9) AS camera_number
+FROM generate_series(1, 8) AS camera_number
 ON CONFLICT (truck_id, camera_id) DO NOTHING;
 
 INSERT INTO users (user_id, email, display_name, status)

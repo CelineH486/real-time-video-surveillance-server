@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/recording.dart';
 import '../utils/taiwan_time.dart';
@@ -16,11 +17,13 @@ class RecordingPlayer extends StatefulWidget {
     required this.date,
     required this.recordings,
     required this.loadUrl,
+    this.refreshRecordings,
   });
 
   final DateTime date;
   final List<Recording> recordings;
   final Future<String> Function(Recording) loadUrl;
+  final Future<List<Recording>> Function()? refreshRecordings;
 
   @override
   State<RecordingPlayer> createState() => _RecordingPlayerState();
@@ -31,6 +34,7 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   Recording? _selected;
   DateTime? _position;
   bool _loading = false;
+  bool _downloading = false;
   String? _error;
   int _request = 0;
   bool _advanced = false;
@@ -119,6 +123,127 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('此裝置無法使用此播放速度')));
+    }
+  }
+
+  Future<void> _download() async {
+    if (_rows.isEmpty || _downloading) return;
+    setState(() => _downloading = true);
+    try {
+      final refresh = widget.refreshRecordings;
+      if (refresh == null) throw StateError('recording refresh unavailable');
+      final dayStart = taiwanDayStartUtc(widget.date);
+      final dayEnd = taiwanDayStartUtc(
+        DateTime(widget.date.year, widget.date.month, widget.date.day + 1),
+      );
+      final available =
+          (await refresh())
+              .where(
+                (r) =>
+                    r.durationSeconds > 0 &&
+                    r.start.isBefore(dayEnd) &&
+                    _end(r).isAfter(dayStart),
+              )
+              .toList()
+            ..sort((a, b) => a.start.compareTo(b.start));
+      if (!mounted) return;
+      if (available.isEmpty) throw StateError('no recordings');
+      String format(DateTime value) {
+        final t = value.toUtc().add(const Duration(hours: 8));
+        String two(int n) => n.toString().padLeft(2, '0');
+        return '${t.year}/${two(t.month)}/${two(t.day)} ${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
+      }
+
+      final recording = await showDialog<Recording>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('選擇下載區段'),
+          content: SizedBox(
+            width: 420,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: available.length,
+              itemBuilder: (context, index) {
+                final row = available[index];
+                return ListTile(
+                  title: Text('${format(row.start)} ～ ${format(_end(row))}'),
+                  subtitle: row.downloadReady
+                      ? (row.durationSeconds < 1800
+                            ? const Text('此段錄影未滿 30 分鐘')
+                            : null)
+                      : const Text('錄影尚未完成或檔案檢查中'),
+                  enabled: row.downloadReady,
+                  onTap: row.downloadReady
+                      ? () => Navigator.pop(context, row)
+                      : null,
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || recording == null) return;
+      final rows = await refresh();
+      final matches = rows
+          .where(
+            (r) =>
+                r.start.isAtSameMomentAs(recording.start) &&
+                r.durationSeconds > 0,
+          )
+          .toList();
+      if (!mounted) return;
+      if (matches.length != 1) {
+        throw StateError('recording no longer available');
+      }
+      final latest = matches.single;
+      if (!latest.downloadReady) throw StateError('recording not ready');
+      final end = latest.start.add(
+        Duration(
+          microseconds:
+              (latest.durationSeconds * Duration.microsecondsPerSecond).floor(),
+        ),
+      );
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('下載目前這段錄影'),
+          content: Text(
+            '可下載範圍（台灣時間）\n${format(latest.start)} ～ ${format(end)}\n\n${latest.durationSeconds < 1800 ? '此段錄影未滿 30 分鐘。\n' : ''}下載範圍以此畫面顯示的時間為準',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('下載 MP4'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || approved != true) return;
+      final url = Uri.parse(await widget.loadUrl(latest));
+      final download = url.replace(
+        queryParameters: {...url.queryParameters, 'download': '1'},
+      );
+      if (!await launchUrl(download, webOnlyWindowName: '_self')) {
+        throw Exception('download failed');
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('下載失敗，請重試')));
+      }
+    } finally {
+      if (mounted) setState(() => _downloading = false);
     }
   }
 
@@ -230,6 +355,14 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
           ),
         ),
         const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton(
+            tooltip: '下載 MP4',
+            onPressed: _rows.isEmpty || _downloading ? null : _download,
+            icon: const Icon(Icons.download),
+          ),
+        ),
         RecordingDayTimeline(
           speed: _sessionPlaybackSpeed,
           onSpeedChanged: _changeSpeed,

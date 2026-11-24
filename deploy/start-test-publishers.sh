@@ -19,7 +19,7 @@ publish() {
     -f rtsp -rtsp_transport tcp "$target/sub" &
 }
 
-for number in 1 2 3 4 5 6 7 8 9; do
+for number in 1 2 3 4 5 6 7 8; do
   publish "$number"
 done
 

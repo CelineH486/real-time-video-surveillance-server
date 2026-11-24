@@ -19,6 +19,18 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="Real-time truck camera surveillance.">
+  <style>body { touch-action: pinch-zoom !important; }</style>
+  <script>
+    // Flutter installs its own restrictive viewport during initialization.
+    const enablePageZoom = () => {
+      const viewport = document.querySelector('meta[name="viewport"]');
+      const content = 'width=device-width, initial-scale=1.0';
+      if (viewport && viewport.content !== content) viewport.content = content;
+    };
+    new MutationObserver(enablePageZoom).observe(document.head, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['content']
+    });
+  </script>
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
