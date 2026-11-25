@@ -1,0 +1,27 @@
+# Example only: do not deploy until credentials, retention and failure tests pass.
+# Load explicitly together with compose.yaml in an isolated test environment.
+services:
+  api:
+    environment:
+      GCS_BUCKET: ${GCS_BUCKET:?Set a test bucket explicitly}
+      UPLOAD_STATE_DIR: /upload-state
+    volumes:
+      - cloud-upload-state:/upload-state:ro
+  mediamtx:
+    # The recorder must never delete clips independently of upload verification.
+    environment:
+      MTX_PATHDEFAULTS_RECORDDELETEAFTER: 0s
+  local-storage-worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.local-storage-worker
+    restart: unless-stopped
+    environment:
+      GCS_BUCKET: ${GCS_BUCKET:?Set a test bucket explicitly}
+      CLEANUP_UPLOADED_RECORDINGS: "true"
+    volumes:
+      - ./recordings:/recordings
+      - recording-status:/recording-status:ro
+      - cloud-upload-state:/upload-state
+volumes:
+  cloud-upload-state:

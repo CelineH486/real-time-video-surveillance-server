@@ -1,0 +1,27 @@
+# Opt-in local simulation only. Never enable in production.
+services:
+  api:
+    environment:
+      SIMULATED_STORAGE: "true"
+      SIMULATED_BUCKET_DIR: /simulated-bucket
+      UPLOAD_STATE_DIR: /upload-state
+    volumes:
+      - simulated-bucket:/simulated-bucket:ro
+      - simulated-upload-state:/upload-state:ro
+  mediamtx:
+    # Preserve unsent files during local failure/retry experiments.
+    environment:
+      MTX_PATHDEFAULTS_RECORDDELETEAFTER: 0s
+  local-storage-worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.local-storage-worker
+    restart: unless-stopped
+    volumes:
+      - ./recordings:/recordings:ro
+      - recording-status:/recording-status:ro
+      - simulated-bucket:/simulated-bucket
+      - simulated-upload-state:/upload-state
+volumes:
+  simulated-bucket:
+  simulated-upload-state:

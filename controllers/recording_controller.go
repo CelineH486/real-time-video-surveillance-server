@@ -74,6 +74,17 @@ func (c *RecordingController) Play(w http.ResponseWriter, r *http.Request) {
 	if !c.cameraExists(w, truckID, cameraID) {
 		return
 	}
+	if c.recordings.SimulationEnabled() {
+		ready, err := c.recordings.DownloadReady(r.Context(), truckID, cameraID, request.Start, request.Duration)
+		if err != nil {
+			http.Error(w, "recording status unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !ready {
+			http.Error(w, "recording is not ready", http.StatusConflict)
+			return
+		}
+	}
 	expires := services.RecordingAccessExpiry(time.Now(), request.Duration)
 	token := c.streams.SignRecordingAccess(truckID, cameraID, request.Start, request.Duration, expires)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -103,7 +114,7 @@ func (c *RecordingController) Content(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, apiresponse.CodeRecordingAccessDenied, apiresponse.MessageRecordingAccessDenied)
 		return
 	}
-	if r.URL.Query().Get("download") == "1" {
+	if c.recordings.SimulationEnabled() || r.URL.Query().Get("download") == "1" {
 		ready, err := c.recordings.DownloadReady(r.Context(), truckID, cameraID, start, duration)
 		if err != nil {
 			http.Error(w, "recording status unavailable", http.StatusServiceUnavailable)

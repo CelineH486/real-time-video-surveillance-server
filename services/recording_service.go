@@ -11,16 +11,21 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	objectstorage "real-time-video-surveillance-system/storage"
 )
 
 type RecordingSpan struct {
-	Start    time.Time `json:"start"`
-	Duration float64   `json:"durationSeconds"`
-	Complete bool      `json:"complete"`
+	Start        time.Time `json:"start"`
+	Duration     float64   `json:"durationSeconds"`
+	Complete     bool      `json:"complete"`
+	PlayReady    bool      `json:"playReady"`
+	UploadStatus string    `json:"uploadStatus,omitempty"`
 }
 
 type mediaMTXRecordingSpan struct {
@@ -38,6 +43,8 @@ type RecordingService struct {
 	cacheMu          sync.Mutex
 	cache            map[string]cachedRecording
 	inflight         map[string]*recordingDownload
+	cloudMu          sync.Mutex
+	cloud            *objectstorage.Cloud
 }
 
 type cachedRecording struct {
@@ -65,6 +72,13 @@ func NewRecordingService(internalBaseURL, apiPublicBaseURL string, streams *Stre
 }
 
 func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, end string) ([]RecordingSpan, error) {
+	if !s.SimulationEnabled() {
+		return s.listMedia(ctx, truckID, cameraID, start, end)
+	}
+	return s.listSimulated(ctx, truckID, cameraID, start, end)
+}
+
+func (s *RecordingService) listMedia(ctx context.Context, truckID, cameraID, start, end string) ([]RecordingSpan, error) {
 	token := s.streams.SignRecordingAccess(truckID, cameraID, time.Unix(0, 0), 0, time.Now().Add(5*time.Minute))
 	query := url.Values{"path": {strings.Join([]string{truckID, cameraID, "main"}, "/")}}
 	// Our pinned MediaMTX build exposes physical segments instead of merging
@@ -98,11 +112,172 @@ func (s *RecordingService) List(ctx context.Context, truckID, cameraID, start, e
 	}
 	result := make([]RecordingSpan, 0, len(source))
 	for _, span := range source {
-		result = append(result, RecordingSpan{
-			Start: span.Start, Duration: span.Duration, Complete: s.segmentComplete(truckID, cameraID, span.Start),
-		})
+		complete := s.segmentComplete(truckID, cameraID, span.Start)
+		status := ""
+		playReady := true
+		if s.SimulationEnabled() {
+			status = "pending"
+			if complete {
+				status = s.simulatedUploadStatus(truckID, cameraID, span.Start)
+			}
+			complete = complete && status == "uploaded"
+			playReady = complete
+		}
+		result = append(result, RecordingSpan{Start: span.Start, Duration: span.Duration, Complete: complete, PlayReady: playReady, UploadStatus: status})
 	}
 	return result, nil
+}
+
+// Uploaded recordings are indexed by durable state, independently of local files.
+// MediaMTX is consulted only to include still-recording or pending segments.
+func (s *RecordingService) listSimulated(ctx context.Context, truckID, cameraID, start, end string) ([]RecordingSpan, error) {
+	valid := regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	if !valid.MatchString(truckID) || !valid.MatchString(cameraID) {
+		return nil, fmt.Errorf("invalid recording path")
+	}
+	var from, until time.Time
+	var err error
+	if start != "" {
+		from, err = time.Parse(time.RFC3339, start)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if end != "" {
+		until, err = time.Parse(time.RFC3339, end)
+		if err != nil {
+			return nil, err
+		}
+	}
+	root := os.Getenv("UPLOAD_STATE_DIR")
+	if root == "" || (os.Getenv("SIMULATED_BUCKET_DIR") == "" && os.Getenv("GCS_BUCKET") == "") {
+		return nil, fmt.Errorf("simulated storage not configured")
+	}
+	dir := filepath.Join(root, truckID, cameraID, "main")
+	entries, err := os.ReadDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	result := make(map[time.Time]RecordingSpan)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".mp4.json") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".mp4.json")
+		if len(name) != 26 || name[19] != '-' {
+			continue
+		}
+		t, e := time.Parse("2006-01-02_15-04-05", name[:19])
+		if e != nil {
+			continue
+		}
+		us, e := strconv.Atoi(name[20:])
+		if e != nil || us < 0 || us > 999999 {
+			continue
+		}
+		t = t.Add(time.Duration(us) * time.Microsecond)
+		b, e := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if e != nil {
+			continue
+		}
+		var j struct {
+			Status   string  `json:"status"`
+			Duration float64 `json:"durationSeconds"`
+		}
+		if json.Unmarshal(b, &j) != nil || j.Status != "uploaded" || j.Duration <= 0 || j.Duration > 86400 || s.simulatedUploadStatus(truckID, cameraID, t) != "uploaded" {
+			continue
+		}
+		if !from.IsZero() && !t.Add(time.Duration(j.Duration*float64(time.Second))).After(from) {
+			continue
+		}
+		if !until.IsZero() && !t.Before(until) {
+			continue
+		}
+		result[t] = RecordingSpan{Start: t, Duration: j.Duration, Complete: true, PlayReady: true, UploadStatus: "uploaded"}
+	}
+	// Pending entries can still be shown while a source is recording or uploading.
+	media, mediaErr := s.listMedia(ctx, truckID, cameraID, start, end)
+	if mediaErr == nil {
+		for _, row := range media {
+			if _, exists := result[row.Start.UTC()]; !exists {
+				row.Complete = false
+				row.PlayReady = false
+				result[row.Start.UTC()] = row
+			}
+		}
+	}
+	if mediaErr != nil && len(result) == 0 {
+		return nil, mediaErr
+	}
+	rows := make([]RecordingSpan, 0, len(result))
+	for _, row := range result {
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Start.Before(rows[j].Start) })
+	return rows, nil
+}
+
+func (s *RecordingService) SimulationEnabled() bool {
+	return os.Getenv("SIMULATED_STORAGE") == "true" || os.Getenv("GCS_BUCKET") != ""
+}
+
+func simulatedRelativePath(truckID, cameraID string, start time.Time) (string, bool) {
+	valid := regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	if !valid.MatchString(truckID) || !valid.MatchString(cameraID) {
+		return "", false
+	}
+	t := start.UTC()
+	name := fmt.Sprintf("%s-%06d.mp4", t.Format("2006-01-02_15-04-05"), t.Nanosecond()/1000)
+	return filepath.Join(truckID, cameraID, "main", name), true
+}
+
+func (s *RecordingService) simulatedUploadStatus(truckID, cameraID string, start time.Time) string {
+	rel, ok := simulatedRelativePath(truckID, cameraID, start)
+	if !ok {
+		return "pending"
+	}
+	root, bucket := os.Getenv("UPLOAD_STATE_DIR"), os.Getenv("SIMULATED_BUCKET_DIR")
+	if root == "" || (bucket == "" && os.Getenv("GCS_BUCKET") == "") {
+		return "pending"
+	}
+	b, err := os.ReadFile(filepath.Join(root, rel+".json"))
+	if err != nil {
+		return "pending"
+	}
+	var j struct {
+		Status     string `json:"status"`
+		Size       int64  `json:"size"`
+		SHA256     string `json:"sha256"`
+		Generation int64  `json:"generation"`
+	}
+	if json.Unmarshal(b, &j) != nil {
+		return "pending"
+	}
+	switch j.Status {
+	case "failed":
+		return "failed"
+	case "uploading":
+		return "uploading"
+	case "uploaded":
+		if os.Getenv("GCS_BUCKET") != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cloud, err := s.cloudClient(ctx)
+			if err != nil {
+				return "pending"
+			}
+			attrs, err := cloud.Attrs(ctx, filepath.ToSlash(rel))
+			if err == nil && attrs.Size == j.Size && j.Size > 0 && attrs.Generation == j.Generation && j.Generation > 0 && attrs.Metadata["sha256"] == j.SHA256 && len(j.SHA256) == 64 {
+				return "uploaded"
+			}
+			return "pending"
+		}
+		info, err := os.Stat(filepath.Join(bucket, rel))
+		if err == nil && info.Mode().IsRegular() && info.Size() > 0 && info.Size() == j.Size && len(j.SHA256) == 64 {
+			return "uploaded"
+		}
+	}
+	return "pending"
 }
 
 // A marker is written only after the recorder closes a file and validation succeeds.
@@ -175,6 +350,27 @@ func (s *RecordingService) Open(ctx context.Context, truckID, cameraID string, s
 
 // Serve writes a materialized recording with standard HTTP range support.
 func (s *RecordingService) Serve(w http.ResponseWriter, r *http.Request, truckID, cameraID string, start time.Time, duration float64, token string) error {
+	if os.Getenv("GCS_BUCKET") != "" {
+		return s.serveCloud(w, r, truckID, cameraID, start)
+	}
+	if s.SimulationEnabled() {
+		rel, ok := simulatedRelativePath(truckID, cameraID, start)
+		if !ok {
+			return fmt.Errorf("invalid recording path")
+		}
+		file, err := os.Open(filepath.Join(os.Getenv("SIMULATED_BUCKET_DIR"), rel))
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		http.ServeContent(w, r, "recording.mp4", info.ModTime(), file)
+		return nil
+	}
 	file, err := s.Open(r.Context(), truckID, cameraID, start, duration, token)
 	if err != nil {
 		return err

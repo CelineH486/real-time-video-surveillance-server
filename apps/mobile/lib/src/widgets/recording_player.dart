@@ -48,7 +48,21 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   );
 
   Future<void> _selectTime(DateTime time) async {
-    final recording = recordingAt(widget.recordings, time);
+    var recording = recordingAt(widget.recordings, time);
+    if (recording != null &&
+        !recording.playReady &&
+        widget.refreshRecordings != null) {
+      try {
+        recording = recordingAt(await widget.refreshRecordings!(), time);
+        if (!mounted) return;
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('無法更新錄影狀態，請重試')));
+        return;
+      }
+    }
     if (recording == null) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -59,6 +73,12 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
   }
 
   Future<void> _play(Recording recording, Duration offset) async {
+    if (!recording.playReady) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('此段錄影尚未上傳完成')));
+      return;
+    }
     final request = ++_request;
     var controller = _controller;
     final reuse =
@@ -171,7 +191,15 @@ class _RecordingPlayerState extends State<RecordingPlayer> {
                       ? (row.durationSeconds < 1800
                             ? const Text('此段錄影未滿 30 分鐘')
                             : null)
-                      : const Text('錄影尚未完成或檔案檢查中'),
+                      : Text(
+                          row.uploadStatus == 'failed'
+                              ? '上傳失敗，系統將重試'
+                              : row.uploadStatus == 'uploading'
+                              ? '上傳中'
+                              : row.uploadStatus == null
+                              ? '錄影尚未完成或檔案檢查中'
+                              : '錄影尚未上傳完成',
+                        ),
                   enabled: row.downloadReady,
                   onTap: row.downloadReady
                       ? () => Navigator.pop(context, row)
