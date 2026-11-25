@@ -6,6 +6,90 @@ import 'package:surveillance_app/src/utils/taiwan_time.dart';
 import 'package:surveillance_app/src/widgets/recording_player.dart';
 
 void main() {
+  testWidgets('refreshes a pending segment before playback', (tester) async {
+    final day = DateTime(2026, 11, 14);
+    final start = taiwanDayStartUtc(day).add(const Duration(hours: 6));
+    final pending = Recording(
+      start: start,
+      durationSeconds: 60,
+      playReady: false,
+    );
+    final ready = Recording(
+      start: start,
+      durationSeconds: 60,
+      playReady: true,
+      downloadReady: true,
+    );
+    final url = Completer<String>();
+    var loads = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: RecordingPlayer(
+              date: day,
+              recordings: [pending],
+              refreshRecordings: () async => [ready],
+              loadUrl: (_) {
+                loads++;
+                return url.future;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    final track = find.byKey(const ValueKey('recording-day-track'));
+    await tester.ensureVisible(track);
+    final rect = tester.getRect(track);
+    await tester.tapAt(
+      Offset(rect.left + rect.width * (6.0 / 24), rect.center.dy),
+    );
+    await tester.pump();
+    expect(loads, 1);
+    await tester.pumpWidget(const SizedBox());
+    url.complete('http://localhost/test.mp4');
+    await tester.pump();
+  });
+  testWidgets('does not play a segment before upload completes', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 11, 14);
+    final start = taiwanDayStartUtc(day).add(const Duration(hours: 6));
+    final row = Recording(
+      start: start,
+      durationSeconds: 60,
+      playReady: false,
+      uploadStatus: 'uploading',
+    );
+    var loads = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: RecordingPlayer(
+              date: day,
+              recordings: [row],
+              refreshRecordings: () async => [row],
+              loadUrl: (_) async {
+                loads++;
+                return 'http://localhost/test.mp4';
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    final track = find.byKey(const ValueKey('recording-day-track'));
+    await tester.ensureVisible(track);
+    final rect = tester.getRect(track);
+    await tester.tapAt(
+      Offset(rect.left + rect.width * (6.0 / 24), rect.center.dy),
+    );
+    await tester.pump();
+    expect(loads, 0);
+    expect(find.text('此段錄影尚未上傳完成'), findsOneWidget);
+  });
   testWidgets('prevents selecting a recording still being written', (
     tester,
   ) async {

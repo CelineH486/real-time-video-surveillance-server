@@ -3,11 +3,15 @@ class Recording {
     required this.start,
     required this.durationSeconds,
     this.downloadReady = false,
+    this.playReady = true,
+    this.uploadStatus,
   });
 
   final DateTime start;
   final double durationSeconds;
   final bool downloadReady;
+  final bool playReady;
+  final String? uploadStatus;
 
   // UTC+8 is explicit: viewing from another timezone must not move midnight.
   DateTime get taiwanStart => start.toUtc().add(const Duration(hours: 8));
@@ -39,6 +43,8 @@ class Recording {
       start: DateTime.parse(json['start'] as String),
       durationSeconds: (json['durationSeconds'] as num).toDouble(),
       downloadReady: json['complete'] == true,
+      playReady: json['playReady'] != false,
+      uploadStatus: json['uploadStatus'] as String?,
     );
   }
 }
